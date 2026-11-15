@@ -12,6 +12,7 @@ from relayout.passes.sdfg.placement import physical_subset
 from relayout.passes.sdfg.prepare import prepare
 from relayout.passes.sdfg.relayout_array import relayout_array
 from relayout.passes.sdfg.rewrite_accesses import rewrite_subscripts
+from relayout.convert import from_layout, to_layout
 from relayout.layout import IndexMap
 from relayout.ops import ArraySpec, Block, Pad, Permute, Shuffle, run
 
@@ -87,6 +88,17 @@ def test_a_nested_read_write_array_is_laid_out_once() -> None:
     np.testing.assert_array_equal(x, np.arange(5.0) + 1.0)
 
 
+def test_a_nested_argument_blocked_in_place_takes_the_new_rank() -> None:
+    blocked = layout([Block("A", "i0", "2", ("o", "f"))], ["NI"])
+    sdfg = readwrite_nested()
+    relayout_array(sdfg, "X", blocked, convert=False)
+    (inner,) = (n.sdfg for n, _ in sdfg.all_nodes_recursive() if isinstance(n, dace.nodes.NestedSDFG))
+    assert len(inner.arrays["X"].shape) == 2
+    x = to_layout(np.arange(5.0), blocked, {"NI": 5})
+    sdfg(X=x, NI=5)
+    np.testing.assert_array_equal(from_layout(x, blocked, {"NI": 5}), np.arange(5.0) + 1.0)
+
+
 def test_an_interstate_subscript_follows_the_layout() -> None:
     blocked = layout([Block("A", "i0", "4", ("o", "f"))], ["N"])
     assert rewrite_subscripts("A[i + 1] * B[i] + A[j]", "A", "laid_A", blocked.physical) == (
@@ -101,4 +113,5 @@ if __name__ == "__main__":
         for case in sorted(REDUCTION_LAYOUTS):
             test_a_reduction_keeps_accumulating(program, case)
     test_a_nested_read_write_array_is_laid_out_once()
+    test_a_nested_argument_blocked_in_place_takes_the_new_rank()
     test_an_interstate_subscript_follows_the_layout()

@@ -37,6 +37,13 @@ def leaf_edges(state: SDFGState, entry: nodes.MapEntry) -> list:
     ]
 
 
+#: A memlet's ``%``: dace's ``CMod`` (C's, the dividend's sign), or sympy's ``Mod``. A block offset is never negative,
+#: so the two agree on every index this pass rewrites.
+MODULOS = (symbolic.CMod, sympy.Mod)
+#: dace's floor divisions, by the name their functions print.
+FLOORS = ("__int_floor", "int_floor")
+
+
 def block_widths(state: SDFGState, entry: nodes.MapEntry) -> dict[str, int]:
     """Each parameter of ``entry`` that :func:`tile_by_block` can tile (from 0 by 1) and some access reads
     as ``p // b`` or ``p % b``, with one constant ``b`` across them (a plain use of ``p`` becomes ``b*p_o + p``
@@ -50,7 +57,7 @@ def block_widths(state: SDFGState, entry: nodes.MapEntry) -> dict[str, int]:
     for edge in leaf_edges(state, entry):
         for begin, _, _ in edge.data.subset.ranges:
             for atom in sympy.sympify(begin).atoms(sympy.Function, sympy.Mod):
-                if type(atom).__name__ in ("__int_floor", "int_floor", "Mod") and len(atom.args) == 2:
+                if (isinstance(atom, MODULOS) or type(atom).__name__ in FLOORS) and len(atom.args) == 2:
                     base, width = atom.args
                     for p, symbol in params.items():
                         if base == symbol and width.is_Integer:
@@ -97,9 +104,9 @@ def simplify_blocks(expression: sympy.Basic, outer: sympy.Symbol, inner: sympy.S
     for atom in expression.atoms(sympy.Function, sympy.Mod):
         if len(atom.args) != 2 or atom.args[1] != width:
             continue
-        if isinstance(atom, sympy.Mod) and multiple_of(atom.args[0] - inner, width):
+        if isinstance(atom, MODULOS) and multiple_of(atom.args[0] - inner, width):
             replacements[atom] = inner
-        elif type(atom).__name__ in ("__int_floor", "int_floor") and sympy.simplify(atom.args[0] - tiled) == 0:
+        elif type(atom).__name__ in FLOORS and sympy.simplify(atom.args[0] - tiled) == 0:
             replacements[atom] = outer
     return expression.xreplace(replacements)
 

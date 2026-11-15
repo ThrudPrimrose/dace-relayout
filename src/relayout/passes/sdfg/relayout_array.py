@@ -50,7 +50,7 @@ def relayout_array(
         laid_desc.transient = True
         sdfg.add_datadesc(laid, laid_desc)
     own = [] if pending is None else pending
-    move_array(sdfg, name, laid, Laid(layout), own, convert=convert)
+    move_array(sdfg, name, laid, Laid(layout), own, convert=convert, rank=len(desc.shape))
     if pending is None:
         pack_mpi_buffers(own)
     propagation.propagate_memlets_sdfg(sdfg)

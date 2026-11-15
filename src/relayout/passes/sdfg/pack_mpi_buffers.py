@@ -10,8 +10,8 @@ from dataclasses import dataclass
 
 import dace
 from dace import nodes, subsets, symbolic
-from dace.libraries.mpi.nodes import Irecv, Wait, Waitall
-from dace.libraries.mpi.nodes.node import MPINode
+from dace.libraries.comm.nodes import Irecv, Wait, Waitall
+from dace.libraries.comm.nodes.node import CommNode
 from dace.libraries.standard.nodes.copy import CopyLibraryNode
 from dace.sdfg.graph import MultiConnectorEdge
 from dace.sdfg.state import SDFGState
@@ -26,7 +26,7 @@ __all__ = ["MpiBuffer", "mpi_buffer", "pack_mpi_buffers", "packed_transfer"]
 def mpi_buffer(edge: MultiConnectorEdge[dace.Memlet]) -> bool:
     """Whether ``edge`` is an MPI library node's buffer (``_buffer``, ``_inbuffer``, ``_out_buffer``, ...)."""
     for node, connector in ((edge.dst, edge.dst_conn), (edge.src, edge.src_conn)):
-        if isinstance(node, MPINode):
+        if isinstance(node, CommNode):
             return connector is not None and connector.endswith("buffer")
     return False
 
@@ -44,7 +44,7 @@ class MpiBuffer:
     logical: subsets.Subset
 
     def node(self) -> nodes.LibraryNode:
-        return self.edge.dst if isinstance(self.edge.dst, MPINode) else self.edge.src
+        return self.edge.dst if isinstance(self.edge.dst, CommNode) else self.edge.src
 
 
 def run_subset(logical: subsets.Subset, layout: IndexMap) -> subsets.Range:

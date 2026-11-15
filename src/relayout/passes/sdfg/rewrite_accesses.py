@@ -76,22 +76,25 @@ def rewrite_accesses(
     placement: Placement,
     states: Sequence[SDFGState] | None = None,
     pending: list[MpiBuffer] | None = None,
+    rank: int | None = None,
 ) -> None:
     """Every access to ``name`` in ``sdfg`` moved to ``target`` (already described in ``sdfg``) through
     ``placement``; with ``states``, only the accesses in those states (interstate edges untouched). A
     nested SDFG ``name`` flows into receives the whole target: its array keeps its name, takes the target's
-    descriptor and is rewritten the same way. With ``pending``, an MPI buffer whose cells are no contiguous run
+    descriptor and is rewritten the same way. ``rank`` is ``name``'s logical rank, by default its descriptor's
+    (an array laid out in place already has the target's). With ``pending``, an MPI buffer whose cells are no contiguous run
     in logical order is rewritten like any access and recorded there for :func:`pack_mpi_buffers`; without
     it, it is packed at once."""
     target_desc = sdfg.arrays[target]
     if not isinstance(target_desc, data.Array):
         raise LayoutError(f"{target!r} is no array")
+    rank = len(sdfg.arrays[name].shape) if rank is None else rank
     for inner_sdfg, inner in list(nested_uses(sdfg, name, states)):
         inner_desc = inner_sdfg.arrays[inner]
-        if len(inner_desc.shape) != len(sdfg.arrays[name].shape):
+        if len(inner_desc.shape) != rank:
             raise LayoutError(
                 f"nested SDFG {inner_sdfg.label!r} receives {name!r} as {inner!r} of rank {len(inner_desc.shape)}, "
-                f"a slice of the rank-{len(sdfg.arrays[name].shape)} array; pass it whole (prepare widens nested inputs)"
+                f"a slice of the rank-{rank} array; pass it whole (prepare widens nested inputs)"
             )
         inner_target = copy.deepcopy(target_desc)
         inner_target.transient = False
@@ -254,17 +257,19 @@ def move_array(
     placement: Placement,
     pending: list[MpiBuffer] | None = None,
     convert: bool = True,
+    rank: int | None = None,
 ) -> None:
     """Move ``name``'s accesses to ``target`` (described in ``sdfg``) through ``placement``. An argument
     keeps its descriptor for the caller and is converted into the target at the start (when read, or
     written only in part: the conversion back must not overwrite the cells the program leaves) and back
     at the end (when written); a transient is removed. Without ``convert`` an argument moved onto itself
-    (``target == name``) is passed laid out by the caller and gets no conversion."""
+    (``target == name``) is passed laid out by the caller and gets no conversion. ``rank``: as
+    :func:`rewrite_accesses` takes it."""
     desc = sdfg.arrays[name]
     shape = [str(extent) for extent in desc.shape]
     read, written = is_read(sdfg, name), is_written(sdfg, name)
     keeps_cells = written and not fully_written(sdfg, name)
-    rewrite_accesses(sdfg, name, target, placement, pending=pending)
+    rewrite_accesses(sdfg, name, target, placement, pending=pending, rank=rank)
     if not convert:
         return
     if desc.transient:

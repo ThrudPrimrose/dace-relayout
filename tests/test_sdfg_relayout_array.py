@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from tests.conftest import LAYOUT_CASES, variant
 from dace import nodes
+from dace.libraries.blas.nodes.matmul import MatMul
 from dace.libraries.blas.nodes.symm import Symm
 from dace.libraries.blas.nodes.syrk import Syrk
 
@@ -254,7 +255,11 @@ def test_syrk_symm_and_reduce_absorb_a_transposed_operand() -> None:
     transposed input (its axes follow)."""
     rng = np.random.default_rng(8)
     a = rng.standard_normal((4, 3))
-    syrk = library_sdfg("laid_syrk", Syrk("syrk", uplo="L", trans="N"), {"_a": ("A", (4, 3)), "_c": ("C", (4, 4))})
+    syrk = library_sdfg(
+        "laid_syrk",
+        Syrk("syrk", uplo=False, transA=False),
+        {"_A": ("A", (4, 3)), "_Cin": ("C", (4, 4)), "_Cout": ("C", (4, 4))},
+    )
     relayout_array(syrk, "A", transposed("A", (4, 3)))
     relayout_array(syrk, "C", transposed("C", (4, 4)))
     syrk.expand_library_nodes()
@@ -266,7 +271,9 @@ def test_syrk_symm_and_reduce_absorb_a_transposed_operand() -> None:
     s = s + s.T
     b = rng.standard_normal((4, 2))
     symm = library_sdfg(
-        "laid_symm", Symm("symm", side="L", uplo="L"), {"_a": ("A", (4, 4)), "_b": ("B", (4, 2)), "_c": ("C", (4, 2))}
+        "laid_symm",
+        Symm("symm", side=False, uplo=False),
+        {"_A": ("A", (4, 4)), "_B": ("B", (4, 2)), "_Cin": ("C", (4, 2)), "_Cout": ("C", (4, 2))},
     )
     relayout_array(symm, "A", transposed("A", (4, 4)))
     symm.expand_library_nodes()
@@ -316,6 +323,35 @@ def test_an_argument_written_in_part_keeps_the_cells_the_program_leaves() -> Non
     np.testing.assert_array_equal(b, want)
 
 
+def sliced_matmul() -> tuple[dace.SDFG, nodes.LibraryNode]:
+    """``C = A[1] @ B``: the MatMul reads a 2-D slice of the 3-D ``A`` straight from it, no view between."""
+    sdfg = dace.SDFG("laid_sliced_matmul")
+    for name, shape in (("A", (2, 4, 3)), ("B", (3, 2)), ("C", (4, 2))):
+        sdfg.add_array(name, shape, dace.float64)
+    state = sdfg.add_state()
+    node = MatMul("matmul")
+    state.add_node(node)
+    state.add_edge(state.add_read("A"), None, node, "_a", dace.Memlet("A[1, 0:4, 0:3]"))
+    state.add_edge(state.add_read("B"), None, node, "_b", dace.Memlet("B[0:3, 0:2]"))
+    state.add_edge(node, "_c", state.add_write("C"), None, dace.Memlet("C[0:4, 0:2]"))
+    return sdfg, node
+
+
+@pytest.mark.parametrize(("order", "flipped"), [(("i1", "i0", "i2"), False), (("i0", "i2", "i1"), True)])
+def test_a_sliced_operand_flips_its_flag_only_when_the_layout_swaps_the_dimensions_it_spans(order, flipped) -> None:
+    sdfg, node = sliced_matmul()
+    a, b = np.random.default_rng(9).random((2, 4, 3)), np.random.default_rng(10).random((3, 2))
+    laid = run([Permute("A", order)], [ArraySpec("A", 3)], (), "ops").layout("A", ["2", "4", "3"])
+
+    relayout_array(sdfg, "A", laid)
+
+    assert node.transA is flipped
+    sdfg.expand_library_nodes()
+    c = np.zeros((4, 2))
+    sdfg(A=a.copy(), B=b, C=c)
+    np.testing.assert_allclose(c, a[1] @ b)
+
+
 if __name__ == "__main__":
     for refused in (
         {"operations": [{"action": "replicate", "array": "A"}]},
@@ -334,3 +370,5 @@ if __name__ == "__main__":
         test_every_layout_case_computes_the_same_on_arguments_and_transients(name)
     test_a_json_request_lays_out_the_program()
     test_a_library_node_without_a_rule_is_refused()
+    for order, flipped in ((("i1", "i0", "i2"), False), (("i0", "i2", "i1"), True)):
+        test_a_sliced_operand_flips_its_flag_only_when_the_layout_swaps_the_dimensions_it_spans(order, flipped)

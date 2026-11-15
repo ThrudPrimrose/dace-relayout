@@ -3,18 +3,18 @@
 it flips a flag or renames its axes, or the layout is refused by name.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import dace
-from dace import nodes
+from dace import nodes, subsets, symbolic
 from dace.libraries.blas.nodes.einsum import Einsum
 from dace.libraries.blas.nodes.gemm import Gemm
 from dace.libraries.blas.nodes.matmul import MatMul
 from dace.libraries.blas.nodes.symm import Symm
 from dace.libraries.blas.nodes.syrk import Syrk
 from dace.libraries.linalg import TensorDot, TensorTranspose
-from dace.libraries.mpi.nodes.node import MPINode
+from dace.libraries.comm.nodes.node import CommNode
 from dace.libraries.standard.nodes.reduce import Reduce
 from dace.sdfg.graph import MultiConnectorEdge
 from dace.sdfg.state import SDFGState
@@ -99,14 +99,14 @@ def tensor_dot_rule(state: SDFGState, node: TensorDot, connector: str, perm: tup
 
 
 def syrk_rule(state: SDFGState, node: Syrk, connector: str, perm: tuple[int, ...], output: bool) -> None:
-    """``C = alpha op(A) op(A)^T + beta C``: ``A`` stored transposed toggles ``trans``; ``C`` stored transposed
+    """``C = alpha op(A) op(A)^T + beta C``: ``A`` stored transposed toggles ``transA``; ``C`` stored transposed
     keeps the same symmetric update in the other triangle (``uplo``), flipped once, on its output edge."""
     if not flips_transpose(perm):
         return
-    if connector == "_a":
-        node.trans = "N" if node.trans == "T" else "T"
-    elif connector == "_c" and output:
-        node.uplo = "U" if node.uplo == "L" else "L"
+    if connector == "_A":
+        node.transA = not node.transA
+    elif connector == "_Cout":
+        node.uplo = not node.uplo
 
 
 def symm_rule(state: SDFGState, node: Symm, connector: str, perm: tuple[int, ...], output: bool) -> None:
@@ -114,9 +114,9 @@ def symm_rule(state: SDFGState, node: Symm, connector: str, perm: tuple[int, ...
     other triangle referenced (``uplo``); ``B`` or ``C`` stored transposed has no flag and is refused."""
     if not flips_transpose(perm):
         return
-    if connector != "_a":
+    if connector != "_A":
         raise LayoutError(f"{state.label}: Symm {node.label!r} takes {connector!r} only as it is; lay out A")
-    node.uplo = "U" if node.uplo == "L" else "L"
+    node.uplo = not node.uplo
 
 
 def reduce_rule(state: SDFGState, node: Reduce, connector: str, perm: tuple[int, ...], output: bool) -> None:
@@ -141,10 +141,23 @@ LIBRARY_RULES: dict[type, Callable[[SDFGState, Any, str, tuple[int, ...], bool],
 }
 
 
+def operand_permutation(perm: tuple[int, ...], memlet: dace.Memlet, shape: Sequence[object]) -> tuple[int, ...]:
+    """``perm`` as the operand ``memlet`` reads sees it: for a slice (a memlet over less than the stored ``shape``),
+    the stored order of the dimensions it spans, the ones it fixes to one index dropped; ``perm`` for the whole
+    array."""
+    assert isinstance(memlet.subset, subsets.Subset), "a library operand's memlet has a subset"
+    sizes = memlet.subset.size()
+    if all(symbolic.simplify(size - extent) == 0 for size, extent in zip(sizes, shape, strict=True)):
+        return perm
+    spanned = [axis for axis, size in enumerate(sizes) if size != 1]
+    logical = sorted(perm[axis] for axis in spanned)
+    return tuple(logical.index(perm[axis]) for axis in spanned)
+
+
 def library_rule(state: SDFGState, edge: MultiConnectorEdge[dace.Memlet], placement: Placement) -> None:
     """A library node at ``edge`` takes the placement by its rule, or the placement is refused."""
     for node, connector in ((edge.src, edge.src_conn), (edge.dst, edge.dst_conn)):
-        if not isinstance(node, nodes.LibraryNode) or isinstance(node, MPINode):
+        if not isinstance(node, nodes.LibraryNode) or isinstance(node, CommNode):
             continue
         perm = placement.permutation()
         rule = LIBRARY_RULES.get(type(node))
@@ -152,5 +165,6 @@ def library_rule(state: SDFGState, edge: MultiConnectorEdge[dace.Memlet], placem
             raise LayoutError(
                 f"{state.label}: library node {node.label!r} ({type(node).__name__}) has no rule for this layout"
             )
+        perm = operand_permutation(perm, edge.data, state.sdfg.arrays[edge.data.data].shape)
         if perm != tuple(range(len(perm))):
             rule(state, node, connector, perm, node is edge.src)
