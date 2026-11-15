@@ -96,8 +96,8 @@ wheels = [
 
 [[package]]
 name = "dace"
-version = "2.0.0a10"
-source = { git = "https://github.com/spcl/dace.git?rev=extended#e2dd06889c044aa11a1d1907bb5486a71a6212d0" }
+version = "2.0.0b1"
+source = { git = "https://github.com/spcl/dace.git?rev=extended#e710aaa3d32ff78b3b594f8c752ecafbb4d0653e" }
 dependencies = [
     { name = "astunparse" },
     { name = "click" },
