@@ -87,6 +87,17 @@ def test_shuffles_renumber_their_digits_and_come_back() -> None:
     np.testing.assert_array_equal(reversed_blocks, [[3, 2, 1, 0], [7, 6, 5, 4]])
 
 
+def test_the_pad_of_a_shuffled_digit_is_dead_wherever_the_shuffle_points() -> None:
+    """A pad's dead cells are stored positions past the live extent; the rotation's inverse maps them back into
+    range, which must not make them live (the gather would copy an element into its pad)."""
+    rotate = Shuffle("A", ("f",), ("(f + 1) % 4",), ("(f - 1) % 4",))
+    for ops in ([Block("A", "i0", "4", ("o", "f")), rotate, Pad("A", "f", "2")],
+                [Block("A", "i0", "4", ("o", "f")), Pad("A", "f", "2"), rotate]):
+        padded = placement(layout_of(ops, (8,)), (8,))
+        assert padded.shape == (2, 6)
+        assert (padded[:, 4:] == -1).all()
+
+
 def test_a_shuffle_that_is_not_a_bijection_is_refused() -> None:
     with pytest.raises(ValueError, match="f_inv must undo f"):
         layout_of([Block("A", "i0", "4", ("o", "w")), Shuffle("A", ("w",), ("3 - w",), ("w",))], (8,))
@@ -120,6 +131,7 @@ if __name__ == "__main__":
     test_permute_and_block_are_numpys_transpose_and_reshape()
     test_a_ragged_block_and_a_pad_leave_dead_cells()
     test_shuffles_renumber_their_digits_and_come_back()
+    test_the_pad_of_a_shuffled_digit_is_dead_wherever_the_shuffle_points()
     test_a_shuffle_that_is_not_a_bijection_is_refused()
     test_a_distributed_digit_leaves_the_rank_local_layout()
     for name in LAYOUT_CASES:
