@@ -32,6 +32,11 @@ class Placement(Protocol):
         """The layout the target stores the array in on its own (an MPI buffer of it may go as it is), else None."""
         ...
 
+    def wraps(self, dim: int) -> bool:
+        """Whether a negative index into logical dimension ``dim`` reads the target's cell as numpy reads it
+        (counted from the end): the dimension is one physical axis of its logical extent."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class Laid:
@@ -60,6 +65,13 @@ class Laid:
     def layout(self) -> IndexMap | None:
         return self.index_map
 
+    def wraps(self, dim: int) -> bool:
+        view = self.index_map.view()
+        if view is None:  # a cut or a renumbering: the index goes through // and %
+            return False
+        live, order = view
+        return live[order[dim]] is None
+
 
 @dataclass(frozen=True, slots=True)
 class Field:
@@ -83,6 +95,9 @@ class Field:
     def layout(self) -> IndexMap | None:
         return None
 
+    def wraps(self, dim: int) -> bool:
+        return True
+
 
 @dataclass(frozen=True, slots=True)
 class Member:
@@ -101,3 +116,6 @@ class Member:
 
     def layout(self) -> IndexMap | None:
         return None
+
+    def wraps(self, dim: int) -> bool:
+        return True

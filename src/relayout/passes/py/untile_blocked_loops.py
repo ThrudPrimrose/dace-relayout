@@ -17,7 +17,7 @@ import ast
 import copy
 from collections.abc import Mapping
 
-from relayout.passes.py.common import Array, arguments, kernel, names_in, parse
+from relayout.passes.py.common import Array, arguments, breaks, kernel, names_in, parse
 from relayout.passes.py.unblock_dimensions import unblock_dimensions, unblock_is_safe
 
 __all__ = ["untile_blocked_loops"]
@@ -126,8 +126,8 @@ def untile_one(func: ast.FunctionDef, outer: ast.For, arrays: Mapping[str, Array
         return None
     inner = outer.body[0]
     inner_bounds = range_args(inner.iter)
-    if not (inner_bounds and isinstance(inner.target, ast.Name) and not inner.orelse):
-        return None
+    if not (inner_bounds and isinstance(inner.target, ast.Name) and not inner.orelse) or breaks(inner.body):
+        return None  # a break leaves one tile; in the collapsed loop it would leave them all
     ii = inner.target.id
     if len(inner_bounds) == 1:
         inner_bounds = [ast.Constant(0), inner_bounds[0]]
