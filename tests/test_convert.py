@@ -14,7 +14,16 @@ import numpy as np
 import pytest
 
 from tests.conftest import LAYOUT_CASES, LAYOUT_SHAPE
-from relayout.convert import Conversion, Group, Member, compile_host, device_source, host_source
+from relayout.convert import (
+    Conversion,
+    Group,
+    Member,
+    compile_host,
+    device_source,
+    from_layout,
+    host_source,
+    to_layout,
+)
 from relayout.layout import IndexMap
 from relayout.ops import ArraySpec, Block, Pad, Permute, Shuffle, eval_index, run
 
@@ -95,6 +104,16 @@ def test_a_cast_to_bool_is_not_zero_and_from_int_rounds_like_ml_dtypes(tmp_path:
     out = np.empty(big.size, dtype=NARROW["bfloat16"])
     call(lib, "relayout_in_bf16_int64", conversions[-1], big, out, n=big.size)
     np.testing.assert_array_equal(out.view(np.uint16), big.astype(NARROW["bfloat16"]).view(np.uint16))
+
+
+def test_the_numpy_form_folds_a_root_over_the_grid() -> None:
+    """A shuffle may read root(P0, 2); the grid binds it to a constant, which the numpy form evaluates as the C
+    kernel folds it."""
+    rotate = Shuffle("A", ("f",), ("(f + root(P0, 2)) % 4",), ("(f - root(P0, 2)) % 4",))
+    layout = run([Block("A", "i0", "4", ("o", "f")), rotate], [ArraySpec("A", 1)], (4,), "ops").layout("A", ["8"])
+    stored = to_layout(np.arange(8.0), layout, {})
+    np.testing.assert_array_equal(stored, [[2, 3, 0, 1], [6, 7, 4, 5]])
+    np.testing.assert_array_equal(from_layout(stored, layout, {}), np.arange(8.0))
 
 
 def layout_for(ops: list, shape: tuple[int, ...]) -> IndexMap:
@@ -240,6 +259,7 @@ if __name__ == "__main__":
     for source in ("float64", "float32"):
         with tempfile.TemporaryDirectory() as tmp:
             test_every_narrow_format_rounds_like_numpy(source, pathlib.Path(tmp))
+    test_the_numpy_form_folds_a_root_over_the_grid()
     with tempfile.TemporaryDirectory() as tmp:
         test_a_cast_to_bool_is_not_zero_and_from_int_rounds_like_ml_dtypes(pathlib.Path(tmp))
     with tempfile.TemporaryDirectory() as tmp:

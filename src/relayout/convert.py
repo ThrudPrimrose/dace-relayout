@@ -20,7 +20,7 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-from relayout.expr import eval_index, evaluate, is_root, node_names
+from relayout.expr import eval_index, evaluate, int_root, is_root, node_names
 from relayout.layout import IndexMap, linear
 
 __all__ = [
@@ -417,8 +417,9 @@ def compile_host(source: str, out: pathlib.Path, compiler: str = "cc", flags: Se
     return out
 
 
-#: The calls of a layout's expressions over numpy arrays.
-NUMPY_CALLS = {"min": np.minimum, "max": np.maximum}
+#: The calls of a layout's expressions over numpy arrays; ``root`` takes grid constants only (a shuffle refuses a
+#: digit value in it), so it stays an int.
+NUMPY_CALLS = {"min": np.minimum, "max": np.maximum, "root": int_root}
 
 
 def placement(
