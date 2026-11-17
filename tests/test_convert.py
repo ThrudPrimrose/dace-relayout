@@ -75,6 +75,28 @@ def test_every_narrow_format_rounds_like_numpy(source: str, tmp_path: pathlib.Pa
         np.testing.assert_array_equal(back, expected.astype(np.dtype(source)))
 
 
+def test_a_cast_to_bool_is_not_zero_and_from_int_rounds_like_ml_dtypes(tmp_path: pathlib.Path) -> None:
+    """A bool is the byte 1 for every value but zero (0.5, 256 and NaN included), as numpy casts; an int64
+    narrows to bfloat16 through float, as ml_dtypes does (2**24 + 2**16 + 1 rounds twice to 2**24)."""
+    flat = IndexMap.identity(["n"])
+    sources = {
+        "float64": np.array([0.0, -0.0, 0.5, -0.25, np.nan, np.inf, 2.0, 1e-300]),
+        "int16": np.array([0, 1, -1, 256, -512, 255, 7, 0], dtype=np.int16),
+        "float16": np.array([0.0, 0.5, -0.0, np.nan, 6e-8, 1.0], dtype=np.float16),
+    }
+    conversions = [Conversion(f"bool_{name}", flat, name, "bool") for name in sources]
+    conversions.append(Conversion("bf16_int64", flat, "int64", "bfloat16"))
+    lib = build(conversions, tmp_path)
+    for conversion, (name, values) in zip(conversions, sources.items(), strict=False):
+        out = np.full(values.size, 7, dtype=np.uint8)
+        call(lib, f"relayout_in_bool_{name}", conversion, values, out, n=values.size)
+        np.testing.assert_array_equal(out, values.astype(bool).view(np.uint8), err_msg=name)
+    big = np.array([2**24 + 2**16 + 1, -(2**31) - 2**23 - 1, 3, 2**40 + 1], dtype=np.int64)
+    out = np.empty(big.size, dtype=NARROW["bfloat16"])
+    call(lib, "relayout_in_bf16_int64", conversions[-1], big, out, n=big.size)
+    np.testing.assert_array_equal(out.view(np.uint16), big.astype(NARROW["bfloat16"]).view(np.uint16))
+
+
 def layout_for(ops: list, shape: tuple[int, ...]) -> IndexMap:
     return run(ops, [ArraySpec("A", len(shape))], (), "operations").layout("A", ["N", "M"])
 
@@ -218,6 +240,8 @@ if __name__ == "__main__":
     for source in ("float64", "float32"):
         with tempfile.TemporaryDirectory() as tmp:
             test_every_narrow_format_rounds_like_numpy(source, pathlib.Path(tmp))
+    with tempfile.TemporaryDirectory() as tmp:
+        test_a_cast_to_bool_is_not_zero_and_from_int_rounds_like_ml_dtypes(pathlib.Path(tmp))
     with tempfile.TemporaryDirectory() as tmp:
         test_a_layout_and_a_cast_are_one_pass_both_ways(pathlib.Path(tmp))
     with tempfile.TemporaryDirectory() as tmp:
