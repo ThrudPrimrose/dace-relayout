@@ -394,7 +394,9 @@ if __name__ == "__main__":
     test_a_zip_of_one_precision_is_a_field_dimension()
     test_a_zip_compares_element_types_not_casts()
     test_an_inner_digit_blocks_only_by_a_divisor_of_its_extent()
-    test_a_digit_of_extent_one_under_an_equal_stride_is_inner([Block("A", "i0", "1", ("a", "b")), Block("A", "b", "3", ("c", "d"))])
+    test_a_digit_of_extent_one_under_an_equal_stride_is_inner(
+        [Block("A", "i0", "1", ("a", "b")), Block("A", "b", "3", ("c", "d"))]
+    )
     test_a_shuffle_takes_root_over_grid_expressions_only()
     test_unzip_along_a_dimension_splits_an_array()
     test_a_complex_array_is_one_element_and_a_struct()

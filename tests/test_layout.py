@@ -91,8 +91,10 @@ def test_the_pad_of_a_shuffled_digit_is_dead_wherever_the_shuffle_points() -> No
     """A pad's dead cells are stored positions past the live extent; the rotation's inverse maps them back into
     range, which must not make them live (the gather would copy an element into its pad)."""
     rotate = Shuffle("A", ("f",), ("(f + 1) % 4",), ("(f - 1) % 4",))
-    for ops in ([Block("A", "i0", "4", ("o", "f")), rotate, Pad("A", "f", "2")],
-                [Block("A", "i0", "4", ("o", "f")), Pad("A", "f", "2"), rotate]):
+    for ops in (
+        [Block("A", "i0", "4", ("o", "f")), rotate, Pad("A", "f", "2")],
+        [Block("A", "i0", "4", ("o", "f")), Pad("A", "f", "2"), rotate],
+    ):
         padded = placement(layout_of(ops, (8,)), (8,))
         assert padded.shape == (2, 6)
         assert (padded[:, 4:] == -1).all()
