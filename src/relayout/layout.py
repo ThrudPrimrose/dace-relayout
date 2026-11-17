@@ -183,27 +183,38 @@ class IndexMap:
         axis below its live extent, every value an unchecked renumbering gives back within its axis, and
         every blocked dimension below its shape (empty = always)."""
         values = {axis.name: value for axis, value in zip(self.axes, position, strict=True)}
-        unchecked: set[str] = set()
         for renumber in reversed(self.renumbers):
             values.update(zip(renumber.axes, (substitute(e, values) for e in renumber.f_inv), strict=True))
-            if not renumber.checked:
-                unchecked.update(renumber.axes)
         conditions = []
         for axis, stored in zip(self.axes, position, strict=True):
             # the dead cells of a pad are the stored positions past the live extent, wherever a renumbering
             # sends its values (they are renumbered within the live extent)
             if axis.pad:
                 conditions.append(f"{wrap(stored)} < {wrap(self.live_extent(axis))}")
-        for axis in self.axes:
-            value, extent = wrap(values[axis.name]), wrap(self.live_extent(axis))
-            if axis.name in unchecked:
-                conditions += [f"-1 < {value}", f"{value} < {extent}"]
+        conditions += self.renumbered_within(values)
         logical = self.logical(position)
         for dim, extent in enumerate(self.shape):
             own = [axis for axis in self.axes if axis.dim == dim]
             if len(own) > 1 and not divides(own, extent):
                 conditions.append(f"{wrap(logical[dim])} < {wrap(extent)}")
         return tuple(conditions)
+
+    def renumbered_within(self, values: Mapping[str, str]) -> list[str]:
+        """The conditions that every axis an unchecked renumbering maps holds its ``values[axis]`` (expressions by
+        axis name) within its live extent: such a renumbering is not proven a bijection of the axes' values."""
+        unchecked = {name for renumber in self.renumbers if not renumber.checked for name in renumber.axes}
+        conditions = []
+        for axis in self.axes:
+            if axis.name in unchecked:
+                value, extent = wrap(values[axis.name]), wrap(self.live_extent(axis))
+                conditions += [f"-1 < {value}", f"{value} < {extent}"]
+        return conditions
+
+    def stored_within(self, index: Sequence[str]) -> tuple[str, ...]:
+        """The conditions under which :meth:`physical` of the logical ``index`` lies in the laid-out buffer: every
+        value an unchecked renumbering stores within its axis (empty = always)."""
+        stored = self.physical(index)
+        return tuple(self.renumbered_within({axis.name: value for axis, value in zip(self.axes, stored, strict=True)}))
 
     def permutation(self) -> tuple[int, ...] | None:
         """The axis permutation this layout is (``axes[k]`` holds dimension ``perm[k]``), or None when it

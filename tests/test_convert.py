@@ -240,6 +240,43 @@ def test_a_group_zips_and_unzips_stacked_struct_and_complex(tmp_path: pathlib.Pa
     np.testing.assert_array_equal(re + 1j * im, z)
 
 
+def test_a_group_keeps_an_unchecked_renumbering_inside_its_buffers(tmp_path: pathlib.Path) -> None:
+    """Two ``[d0]`` parts stacked first, the whole's cell index renumbered by ``i1 + 1`` over the symbolic
+    ``d0`` (not provable, so unchecked): the zip writes only the cells that land inside the whole (the last
+    cell of each part has none), never past the buffer, and the unzip reads only those."""
+    shifted = Shuffle("A", ("i1",), ("i1 + 1",), ("i1 - 1",))
+    whole = run([shifted], [ArraySpec("A", 2)], (), "ops").layout("A", ["2", "d0"])
+    assert not whole.renumbers[0].checked
+    flat = IndexMap.identity(["d0"])
+    group = Group("s", whole, (Member("x", flat, "float64", "float64"), Member("y", flat, "float64", "float64")), 0)
+    lib = ctypes.CDLL(str(compile_host(host_source([], groups=[group]), tmp_path / "g.so", os.environ.get("CC", "cc"))))
+    x, y = np.arange(1.0, 6.0), np.arange(11.0, 16.0)
+    guarded = np.full(2 * 5 + 4, -1.0)  # the whole's 10 cells, then 4 guard cells
+    group_call(lib, "relayout_zip_s", [x, y, guarded], group, d0=5)
+    expected = np.full(14, -1.0)
+    expected[:10].reshape(2, 5)[:, 1:] = np.stack([x, y])[:, :4]
+    np.testing.assert_array_equal(guarded, expected)
+    back = [np.zeros(5), np.zeros(5)]
+    group_call(lib, "relayout_unzip_s", [guarded, *back], group, d0=5)
+    np.testing.assert_array_equal(np.stack(back), np.concatenate([np.stack([x, y])[:, :4], np.zeros((2, 1))], axis=1))
+
+
+def test_a_group_of_0d_parts_builds_and_zips(tmp_path: pathlib.Path) -> None:
+    """A struct of two 0-d parts (scalars held in arrays) is one cell, with no loop to parallelize: its kernels
+    build and move the cell both ways."""
+    point = IndexMap.identity([])
+    parts = (Member("a", point, "float32", "float32", "a"), Member("b", point, "float64", "float64", "b"))
+    group = Group("t", point, parts, None, "relayout_struct_t")
+    lib = ctypes.CDLL(str(compile_host(host_source([], groups=[group]), tmp_path / "g.so", os.environ.get("CC", "cc"))))
+    a, b = np.array(1.5, np.float32), np.array(2.25)
+    whole = np.zeros((), np.dtype([("a", np.float32), ("b", np.float64)], align=True))
+    group_call(lib, "relayout_zip_t", [a, b, whole], group)
+    assert (whole["a"], whole["b"]) == (1.5, 2.25)
+    back = [np.zeros((), np.float32), np.zeros(())]
+    group_call(lib, "relayout_unzip_t", [whole, *back], group)
+    assert (back[0], back[1]) == (1.5, 2.25)
+
+
 def test_the_device_kernels_match_the_host(tmp_path: pathlib.Path) -> None:
     cp = pytest.importorskip("cupy")
     if cp.cuda.runtime.getDeviceCount() == 0:
@@ -256,6 +293,8 @@ def test_the_device_kernels_match_the_host(tmp_path: pathlib.Path) -> None:
 
 if __name__ == "__main__":
     test_a_group_zips_and_unzips_stacked_struct_and_complex(pathlib.Path(tempfile.mkdtemp()))
+    test_a_group_keeps_an_unchecked_renumbering_inside_its_buffers(pathlib.Path(tempfile.mkdtemp()))
+    test_a_group_of_0d_parts_builds_and_zips(pathlib.Path(tempfile.mkdtemp()))
     for source in ("float64", "float32"):
         with tempfile.TemporaryDirectory() as tmp:
             test_every_narrow_format_rounds_like_numpy(source, pathlib.Path(tmp))

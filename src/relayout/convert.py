@@ -211,12 +211,19 @@ def host_function(conversion: Conversion, inward: bool) -> str:
         for k, (p, extent) in enumerate(zip(positions, extents, strict=True))
     )
     zero = f"    const {conversion.types(inward)[1]} zero = {{0}};\n    (void)zero;\n" if inward else ""
-    collapse = f" collapse({len(extents)})" if len(extents) > 1 else ""
     return (
         f"{conversion.signature(inward, 'restrict')} {{\n{zero}"
-        f"#pragma omp parallel for{collapse} schedule(static)\n{loops}"
+        f"{parallel_for(len(extents))}{loops}"
         f"{'    ' * (len(extents) + 1)}{conversion.body(positions, inward)}\n}}\n"
     )
+
+
+def parallel_for(depth: int) -> str:
+    """The OpenMP pragma over a nest of ``depth`` loops; a 0-d array's single cell has no loop to share."""
+    if not depth:
+        return ""
+    collapse = f" collapse({depth})" if depth > 1 else ""
+    return f"#pragma omp parallel for{collapse} schedule(static)\n"
 
 
 def host_source(
@@ -343,23 +350,27 @@ class Group:
         members = " ".join(f"{ELEMENTS[part.stored].c_type} {part.field};" for part in self.parts)
         return f"typedef struct {{ {members} }} {self.struct};\n"
 
-    def cells(self, index: Sequence[str]) -> list[tuple[Member, str, str]]:
-        """Per part at logical ``index``: the part, its buffer position and the whole's (with its member)."""
+    def cells(self, index: Sequence[str]) -> list[tuple[Member, str, str, str]]:
+        """Per part at logical ``index``: the part, its buffer position, the whole's (with its member) and the C
+        condition that both lie in their buffers ("" = always; an unchecked renumbering may send a cell out)."""
         out = []
         for k, part in enumerate(self.parts):
             at = c_expr(linear(part.layout.physical(index), part.layout.extents()))
             whole_index = list(index) if self.dim is None else [*index[: self.dim], str(k), *index[self.dim :]]
             whole = c_expr(linear(self.layout.physical(whole_index), self.layout.extents()))
-            out.append((part, at, f"whole[{whole}]" + (f".{part.field}" if self.dim is None else "")))
+            within = (*part.layout.stored_within(index), *self.layout.stored_within(whole_index))
+            member = f"whole[{whole}]" + (f".{part.field}" if self.dim is None else "")
+            out.append((part, at, member, " && ".join(c_expr(condition) for condition in within)))
         return out
 
     def bodies(self, index: Sequence[str]) -> tuple[str, str]:
         """The zip and the unzip statements at logical ``index``."""
         zips, unzips = [], []
-        for k, (part, at, whole) in enumerate(self.cells(index)):
+        for k, (part, at, whole, within) in enumerate(self.cells(index)):
             logical, stored = ELEMENTS[part.logical], ELEMENTS[part.stored]
-            zips.append(f"{whole} = {cast(logical, stored, f'p{k}[{at}]')};")
-            unzips.append(f"p{k}[{at}] = {cast(stored, logical, whole)};")
+            guard = f"if ({within}) " if within else ""
+            zips.append(f"{guard}{whole} = {cast(logical, stored, f'p{k}[{at}]')};")
+            unzips.append(f"{guard}p{k}[{at}] = {cast(stored, logical, whole)};")
         return " ".join(zips), " ".join(unzips)
 
     def signatures(self, qualifier: str) -> tuple[str, str]:
@@ -379,13 +390,10 @@ class Group:
             f"{'    ' * (d + 1)}for (int64_t {i} = 0; {i} < {n}; ++{i})\n"
             for d, (i, n) in enumerate(zip(index, shape, strict=True))
         )
-        collapse = f" collapse({len(shape)})" if len(shape) > 1 else ""
         body = "    " * (len(shape) + 1)
         out = []
         for signature, statement in zip(self.signatures("restrict"), self.bodies(index), strict=True):
-            out.append(
-                f"{signature} {{\n#pragma omp parallel for{collapse} schedule(static)\n{loops}{body}{{ {statement} }}\n}}\n"
-            )
+            out.append(f"{signature} {{\n{parallel_for(len(shape))}{loops}{body}{{ {statement} }}\n}}\n")
         return self.typedef() + "".join(out)
 
     def device(self) -> str:
