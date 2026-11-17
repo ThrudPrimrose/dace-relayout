@@ -189,12 +189,15 @@ class IndexMap:
             if not renumber.checked:
                 unchecked.update(renumber.axes)
         conditions = []
+        for axis, stored in zip(self.axes, position, strict=True):
+            # the dead cells of a pad are the stored positions past the live extent, wherever a renumbering
+            # sends its values (they are renumbered within the live extent)
+            if axis.pad:
+                conditions.append(f"{wrap(stored)} < {wrap(self.live_extent(axis))}")
         for axis in self.axes:
             value, extent = wrap(values[axis.name]), wrap(self.live_extent(axis))
             if axis.name in unchecked:
                 conditions += [f"-1 < {value}", f"{value} < {extent}"]
-            elif axis.pad:
-                conditions.append(f"{value} < {extent}")
         logical = self.logical(position)
         for dim, extent in enumerate(self.shape):
             own = [axis for axis in self.axes if axis.dim == dim]

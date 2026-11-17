@@ -20,7 +20,7 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-from relayout.expr import eval_index, evaluate, is_root, node_names
+from relayout.expr import eval_index, evaluate, int_root, is_root, node_names
 from relayout.layout import IndexMap, linear
 
 __all__ = [
@@ -96,10 +96,15 @@ def cast(source: Element, target: Element, value: str) -> str:
         source_part, target_part = ELEMENTS[source.component], ELEMENTS[target.component]
         parts = (cast(source_part, target_part, f"({value}).{part}") for part in ("re", "im"))
         return f"relayout_make_{target.c_type.removeprefix('relayout_')}({', '.join(parts)})"
+    if target.name == "bool":
+        # numpy's bool is "not zero" (NaN included), stored as the byte 0 or 1; a C cast would truncate 0.5 to
+        # 0 and keep 256's low byte
+        return f"({target.c_type})({as_double(source, value) if source.bits else value} != 0)"
     if target.bits is not None:
         ebits, mbits, finite = target.bits
         wide = as_double(source, value)
-        if target.via_float and source.name == "float64":
+        if target.via_float and source.bits is None and source.name != "float32":
+            # ml_dtypes converts a double and an integer through float, so an int64 above 2**24 rounds twice
             wide = f"(double)(float)({wide})"
         return f"({target.c_type})relayout_narrow({wide}, {ebits}, {mbits}, {int(finite)})"
     if source.bits is not None:
@@ -412,8 +417,9 @@ def compile_host(source: str, out: pathlib.Path, compiler: str = "cc", flags: Se
     return out
 
 
-#: The calls of a layout's expressions over numpy arrays.
-NUMPY_CALLS = {"min": np.minimum, "max": np.maximum}
+#: The calls of a layout's expressions over numpy arrays; ``root`` takes grid constants only (a shuffle refuses a
+#: digit value in it), so it stays an int.
+NUMPY_CALLS = {"min": np.minimum, "max": np.maximum, "root": int_root}
 
 
 def placement(

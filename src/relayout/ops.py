@@ -488,8 +488,13 @@ class DigitTuple:
         """Cut digit ``name`` ``(d, s, e)`` into coarse ``(d, s*b, ceil(e/b))`` and fine ``(d, s, b)``, in place."""
         old = self.cut(name)
         position = self.find(name)
+        # A digit of extent 1 (a block by 1, or by a digit's whole extent) shares its stride with the digit
+        # above it, so a stride alone does not order them: a digit is coarser when it starts at or past
+        # ``old``'s top, ``old.stride * old.extent``.
         coarser = any(
-            d.dim == old.dim and (d.band or d.stride > old.stride)
+            d.dim == old.dim
+            and d.name != old.name
+            and (d.band or d.stride > old.stride or (old.extent is not None and d.stride >= old.stride * old.extent))
             for d in (*self.digits, *(digit for digit, _ in self.distributed))
         )
         if coarser and old.extent is not None and factor is not None and old.extent % factor:
