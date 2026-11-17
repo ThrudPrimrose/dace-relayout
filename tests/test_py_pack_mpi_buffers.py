@@ -63,6 +63,9 @@ class OneRank:
     def Irecv(self, buf: np.ndarray, source: int) -> Request:  # noqa: N802
         return Request(self, buf)
 
+    def Recv(self, buf: np.ndarray, source: int) -> None:  # noqa: N802
+        self.land(buf)
+
 
 def exchange(comm: Any, A: np.ndarray, B: np.ndarray, P: int, N: int) -> None:  # noqa: N803
     comm.Alltoall(A, B)
@@ -138,6 +141,22 @@ def test_a_cut_layout_packs_through_loops_and_an_irecv_unpacks_after_its_wait() 
         laid_out(unwaited, TRANSPOSED, TRANSPOSED)
 
 
+def received_by_keyword(comm: Any, A: np.ndarray, B: np.ndarray, P: int, N: int) -> None:  # noqa: N803
+    comm.Send(A, dest=0)
+    comm.Recv(buf=B, source=0)
+
+
+@pytest.mark.parametrize("case", ["permute", "block_ragged"])
+def test_a_buffer_named_buf_receives_in_a_recv(case: str) -> None:
+    """``buf`` is the first argument by name: received by ``Recv``, so it is unpacked after the call and converted
+    out to the caller."""
+    function = laid_out(received_by_keyword, LAYOUT_CASES[case], LAYOUT_CASES[case])
+    a = np.random.default_rng(12).random((4, 6))
+    b = np.zeros((4, 6))
+    function.function(OneRank(), a, b, P=4, N=6)
+    np.testing.assert_array_equal(b, a)
+
+
 @pytest.mark.parametrize("both", [True, False], ids=["both_buffers", "send_only"])
 @pytest.mark.parametrize("case", LAYOUT_CASES)
 def test_every_layout_case_moves_the_logical_rows_on_one_rank(case: str, both: bool) -> None:
@@ -171,6 +190,8 @@ if __name__ == "__main__":
     test_a_transfer_of_a_laid_out_array_goes_through_a_packed_buffer()
     test_one_layout_on_both_buffers_with_rows_outermost_moves_without_a_pack()
     test_a_cut_layout_packs_through_loops_and_an_irecv_unpacks_after_its_wait()
+    for name in ("permute", "block_ragged"):
+        test_a_buffer_named_buf_receives_in_a_recv(name)
     for name in LAYOUT_CASES:
         test_every_layout_case_moves_the_logical_rows_on_one_rank(name, True)
         test_every_layout_case_moves_the_logical_rows_on_one_rank(name, False)

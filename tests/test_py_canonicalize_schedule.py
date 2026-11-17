@@ -135,9 +135,63 @@ def test_a_nest_carrying_a_reduction_keeps_its_order() -> None:
     np.testing.assert_allclose(s[0], a.sum())
 
 
+def tiled_until(A: np.ndarray, B: np.ndarray, K: int) -> None:  # noqa: N803
+    for jo in range(K):
+        for ji in range(4):
+            if A[4 * jo + ji] < 0.0:
+                break
+            B[4 * jo + ji] = A[4 * jo + ji]
+
+
+def test_a_tile_that_breaks_is_not_merged() -> None:
+    """A ``break`` leaves its tile only; merged into one loop it would leave every tile after it."""
+    function = rewritten(tiled_until, canonicalize_schedule)
+    assert nesting(function.source) == [["jo", "ji"]]
+    a = np.array([1.0, -1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+    b = np.zeros(8)
+    function.function(a, b, K=2)
+    np.testing.assert_allclose(b, [1.0, 0.0, 0.0, 0.0, 4.0, 5.0, 6.0, 7.0])
+
+
+def skewed(A: np.ndarray, N: int, M: int) -> None:  # noqa: N803
+    for i in range(1, N):
+        for j in range(M - 1):
+            A[i][j] = A[i - 1][j + 1] + 1.0
+
+
+def test_a_nest_storing_through_chained_subscripts_keeps_its_order() -> None:
+    """``A[i][j] = A[i - 1][j + 1]`` carries a (1, -1) dependence: interchanging the loops reads cells the
+    original order had not written yet."""
+    function = rewritten(skewed, canonicalize_schedule)
+    assert ["i", "j"] in nesting(function.source)
+    a = np.arange(30.0).reshape(5, 6)
+    want = a.copy()
+    skewed(want, 5, 6)
+    function.function(a, N=5, M=6)
+    np.testing.assert_allclose(a, want)
+
+
+def last_index(A: np.ndarray, B: np.ndarray, N: int) -> None:  # noqa: N803
+    for i in range(N):
+        B[i // 4] += A[i]
+    B[0] = i  # noqa: B007  # Python keeps a loop's variable after it
+
+
+def test_a_loop_whose_variable_is_read_after_it_is_not_tiled() -> None:
+    """Tiled, ``i`` would end as the offset in the last block, not as ``N - 1``."""
+    function = rewritten(last_index, canonicalize_schedule)
+    a = np.ones(7)
+    b = np.zeros(2)
+    function.function(a, b, N=7)
+    np.testing.assert_allclose(b, [6.0, 3.0])
+
+
 if __name__ == "__main__":
     test_a_blocked_array_tiles_its_loop()
     test_a_permuted_array_puts_its_unit_stride_loop_innermost()
     test_a_tiled_loop_merges_over_flat_arrays_and_keeps_its_tiles_over_blocked_ones()
     test_a_loop_not_starting_at_zero_keeps_its_blocked_accesses()
     test_a_nest_carrying_a_reduction_keeps_its_order()
+    test_a_tile_that_breaks_is_not_merged()
+    test_a_nest_storing_through_chained_subscripts_keeps_its_order()
+    test_a_loop_whose_variable_is_read_after_it_is_not_tiled()

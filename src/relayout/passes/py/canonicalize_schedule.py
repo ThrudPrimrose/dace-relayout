@@ -17,7 +17,7 @@ import copy
 import math
 from collections.abc import Sequence
 
-from relayout.passes.py.common import kernel, names_in, parse
+from relayout.passes.py.common import breaks, kernel, names_in, parse
 from relayout.passes.py.rewrite_accesses import scalar_indices
 
 __all__ = ["canonicalize_schedule"]
@@ -90,6 +90,32 @@ def loops_with_enclosing(func: ast.FunctionDef) -> list[tuple[ast.For, set[str]]
 
     walk(func.body, set())
     return out
+
+
+def leaks(func: ast.FunctionDef, loop: ast.For, names: set[str]) -> bool:
+    """Whether ``func`` reads one of ``names`` outside ``loop`` where no other loop or comprehension binds it: a
+    Python loop variable keeps its last value after the loop, which a tiled or merged loop changes."""
+    inside = {id(n) for n in ast.walk(loop)}
+    parents: dict[int, ast.AST] = {}
+    for node in ast.walk(func):
+        for child in ast.iter_child_nodes(node):
+            parents[id(child)] = node
+    for node in ast.walk(func):
+        if not (isinstance(node, ast.Name) and node.id in names and isinstance(node.ctx, ast.Load)):
+            continue
+        if id(node) in inside:
+            continue
+        up: ast.AST | None = parents.get(id(node))
+        bound = False
+        while up is not None and not bound:
+            if isinstance(up, ast.For):
+                bound = node.id in names_in(up.target)
+            elif isinstance(up, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                bound = any(node.id in names_in(g.target) for g in up.generators)
+            up = parents.get(id(up))
+        if not bound:
+            return True
+    return False
 
 
 class Blocks(ast.NodeTransformer):
@@ -189,8 +215,8 @@ def untile(func: ast.FunctionDef) -> int:
         width = width_of(inner_bounds[1])
         assert isinstance(outer.target, ast.Name) and isinstance(inner.target, ast.Name)
         o, p = outer.target.id, inner.target.id
-        if width is None or o in names_in(inner_bounds[1]):
-            continue
+        if width is None or o in names_in(inner_bounds[1]) or breaks(inner.body) or leaks(func, outer, {o, p}):
+            continue  # a break leaves one tile (in the merged loop, all); a variable read after keeps another value
 
         flat = "__relayout_flat"
 
@@ -253,6 +279,12 @@ def independent(func: ast.FunctionDef, nest: Sequence[ast.For], body: Sequence[a
         n for s in body for n in ast.walk(s) if isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name)
     ]
     written = {n.value.id for n in subscripts if isinstance(n.ctx, ast.Store)}  # type: ignore[union-attr]
+    stored = [n for s in body for n in ast.walk(s) if isinstance(n, (ast.Subscript, ast.Attribute))]
+    if any(isinstance(n.ctx, ast.Store) and not isinstance(n.value, ast.Name) for n in stored):
+        return False  # a store through ``A[i][j]`` or ``A.x[i]``: its cells are no index of the check below
+    indexed = {id(n.value) for n in subscripts}
+    if any(isinstance(n, ast.Name) and n.id in written and id(n) not in indexed for s in body for n in ast.walk(s)):
+        return False  # a written array also read whole (``np.sum(A)``) sees the cells earlier iterations wrote
     for name in written:
         indices = {ast.unparse(n.slice) for n in subscripts if n.value.id == name}  # type: ignore[union-attr]
         if len(indices) != 1:
@@ -357,7 +389,7 @@ def canonicalize_schedule(tree: ast.Module, function: str | None = None) -> int:
             (
                 (loop, width)
                 for loop, enclosing in loops_with_enclosing(func)
-                if (width := block_widths(loop, enclosing))
+                if (width := block_widths(loop, enclosing)) and not leaks(func, loop, names_in(loop.target))
             ),
             None,
         )

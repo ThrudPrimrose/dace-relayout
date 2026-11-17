@@ -3,7 +3,10 @@
 :class:`~relayout.passes.py.placement.Placement`, the counterpart of :mod:`relayout.passes.sdfg.rewrite_accesses`:
 
 - an element access ``A[i, j]`` (one scalar index per dimension) reads and writes the target's cell
-  (:meth:`~relayout.passes.py.placement.Placement.access`), for every placement;
+  (:meth:`~relayout.passes.py.placement.Placement.access`), for every placement; a negative index counts from
+  the end, as in numpy: a negative constant is offset by the extent, and where the layout pads or cuts the
+  dimension, an index the pass cannot prove non-negative (from constants and the ``range`` loops around it) is
+  taken modulo the extent;
 - any other use of ``A`` (a slice, a whole-array operation, a call) uses the logical view of the target
   (:meth:`~relayout.passes.py.placement.Placement.view`), which numpy reads and writes through; a layout that
   cuts or renumbers a dimension has no such view, and the use is refused by its line;
@@ -31,6 +34,7 @@ from relayout.passes.py.common import (
     fully_written,
     is_read,
     is_written,
+    keyword_role,
     locate,
     parse,
     statement,
@@ -38,8 +42,6 @@ from relayout.passes.py.common import (
 )
 from relayout.passes.py.pack_mpi_buffers import (
     MPI_BUFFERS,
-    RECV_KEYWORDS,
-    SEND_KEYWORDS,
     Box,
     MpiBuffer,
     pack_mpi_buffers,
@@ -77,6 +79,77 @@ class Rewriter(ast.NodeTransformer):
         self.shape = tuple(shape)
         self.buffers = buffers
         self.current: ast.stmt | None = None
+        self.lower: dict[str, int] = {}  # a lower bound of each enclosing range loop's variable
+
+    def visit_For(self, node: ast.For) -> ast.AST:
+        name = node.target.id if isinstance(node.target, ast.Name) else None
+        bound = self.loop_lower(node) if name is not None else None
+        stored = name is not None and any(
+            isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Store)
+            for s in node.body
+            for n in ast.walk(s)
+        )
+        if name is None or bound is None or stored:
+            return self.shadowed(node, name)
+        outer = self.lower.get(name)
+        self.lower[name] = bound
+        try:
+            return self.generic_visit(node)
+        finally:
+            if outer is None:
+                del self.lower[name]
+            else:
+                self.lower[name] = outer
+
+    def shadowed(self, node: ast.For, name: str | None) -> ast.AST:
+        """``node`` visited with its variable's bound unknown (it rebinds a name whose bound an outer loop gave)."""
+        names = {name} if name is not None else {n.id for n in ast.walk(node.target) if isinstance(n, ast.Name)}
+        saved = {n: self.lower.pop(n) for n in names if n in self.lower}
+        try:
+            return self.generic_visit(node)
+        finally:
+            self.lower.update(saved)
+
+    def loop_lower(self, node: ast.For) -> int | None:
+        """A lower bound of ``node``'s variable: the start of a ``range`` with a positive constant step."""
+        call = node.iter
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "range"):
+            return None
+        if call.keywords or not 1 <= len(call.args) <= 3:
+            return None
+        if len(call.args) == 3:
+            step = call.args[2]
+            if not (isinstance(step, ast.Constant) and isinstance(step.value, int) and step.value > 0):
+                return None
+        return 0 if len(call.args) == 1 else self.lower_bound(call.args[0])
+
+    def lower_bound(self, node: ast.expr) -> int | None:
+        """A lower bound of integer expression ``node``, or None when the pass knows none."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+            return node.value
+        if isinstance(node, ast.Name):
+            return self.lower.get(node.id)
+        if not isinstance(node, ast.BinOp):
+            return None
+        right = node.right.value if isinstance(node.right, ast.Constant) else None
+        positive = isinstance(right, int) and not isinstance(right, bool) and right > 0
+        if isinstance(node.op, ast.Mod) and positive:
+            return 0
+        left = self.lower_bound(node.left)
+        if left is None:
+            return None
+        if isinstance(node.op, ast.FloorDiv) and positive:
+            return left // right  # type: ignore[operator]
+        if isinstance(node.op, ast.Sub) and isinstance(right, int) and not isinstance(right, bool):
+            return left - right
+        other = self.lower_bound(node.right)
+        if other is None:
+            return None
+        if isinstance(node.op, ast.Add):
+            return left + other
+        if isinstance(node.op, ast.Mult) and left >= 0 and other >= 0:
+            return left * other
+        return None
 
     def statements(self, body: list[ast.stmt]) -> list[ast.stmt]:
         outer = self.current
@@ -106,8 +179,10 @@ class Rewriter(ast.NodeTransformer):
             )
         return parse(view)
 
-    def index_text(self, element: ast.expr, dim: int) -> str:
-        """An index into dimension ``dim`` as source; a negative constant counts from the end, as in numpy."""
+    def index_text(self, element: ast.expr, dim: int, wrap: bool = False) -> str:
+        """An index into dimension ``dim`` as source; a negative constant counts from the end, as in numpy. With
+        ``wrap`` (an element access), so does any index the layout of the dimension would misread negative and the
+        pass cannot prove non-negative."""
         value = self.visit(element)
         if (
             isinstance(value, ast.UnaryOp)
@@ -115,13 +190,16 @@ class Rewriter(ast.NodeTransformer):
             and isinstance(value.operand, ast.Constant)
         ):
             return f"({self.shape[dim]}) - {ast.unparse(value.operand)}"
+        bound = self.lower_bound(value)
+        if wrap and not self.placement.wraps(dim) and (bound is None or bound < 0):
+            return f"({ast.unparse(value)}) % ({self.shape[dim]})"
         return ast.unparse(value)
 
     def visit_Subscript(self, node: ast.Subscript) -> ast.AST:
         if isinstance(node.value, ast.Name) and node.value.id == self.name:
             indices = scalar_indices(node)
             if indices is not None and len(indices) == len(self.shape):
-                index = [self.index_text(element, dim) for dim, element in enumerate(indices)]
+                index = [self.index_text(element, dim, wrap=True) for dim, element in enumerate(indices)]
                 access = parse(self.placement.access(self.target, index))
                 assert isinstance(access, ast.Subscript)
                 access.ctx = node.ctx
@@ -152,7 +230,7 @@ class Rewriter(ast.NodeTransformer):
         for k, arg in enumerate(node.args):
             node.args[k] = self.buffer(node, k, arg, k in sends, k in receives, method)
         for keyword in node.keywords:
-            send, receive = keyword.arg in SEND_KEYWORDS, keyword.arg in RECV_KEYWORDS
+            send, receive = keyword_role(method, keyword.arg)
             assert keyword.arg is not None or not (send or receive)
             keyword.value = self.buffer(node, keyword.arg or "", keyword.value, send, receive, method)
         return node
@@ -254,7 +332,7 @@ def move_array(
     conversion out at the exit. A local's one definition becomes ``allocate`` and its conversion into the target;
     a ``np.zeros`` or ``np.empty`` definition needs no conversion (the target is allocated with zeros)."""
     if name in arguments(func):
-        read, written = is_read(func, name), is_written(func, name)
+        read, written = is_read(func, name), is_written(func, name, len(shape))
         keeps_cells = written and not fully_written(func, name, shape)
         rewrite_accesses(func, name, target, placement, shape, pending)
         entry = list(allocate(f"{name}.dtype")) if allocate is not None else []

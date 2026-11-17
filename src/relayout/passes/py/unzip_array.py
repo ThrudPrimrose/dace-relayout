@@ -102,7 +102,7 @@ def unzip_array(
     allocate = [statement(f"{part} = np.zeros({tuple_text(rest)}, dtype=np.dtype({spec.element!r}))") for part in into]
     split = Split(name, into, dim, len(spec.shape))
     if name in arguments(func):
-        read, written = is_read(func, name), is_written(func, name)
+        read, written = is_read(func, name), is_written(func, name, len(spec.shape))
         keeps_cells = written and not fully_written(func, name, spec.shape)
         func.body = [split.visit(stmt) for stmt in func.body]
         entry = list(allocate)

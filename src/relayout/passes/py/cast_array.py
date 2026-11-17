@@ -25,7 +25,7 @@ from relayout.passes.py.common import (
 from relayout.passes.py.placement import Laid
 from relayout.passes.py.rewrite_accesses import move_array
 
-__all__ = ["PRECISION_TYPES", "cast_array"]
+__all__ = ["PRECISION_TYPES", "cast_array", "cast_element"]
 
 #: The element type a ``cast`` asks for, as numpy has it.
 PRECISION_TYPES = {
@@ -35,15 +35,29 @@ PRECISION_TYPES = {
 }
 
 
+#: The complex element type of each real one numpy has: a cast of a complex array sets both parts.
+COMPLEX_TYPES = {"float64": "complex128", "float32": "complex64"}
+
+
+def cast_element(element: str | None, precision: Precision) -> str | None:
+    """The numpy element type an array of ``element`` takes under a cast to ``precision``: a real type, or for a
+    complex array (the native struct ``(re, im)``) the complex type of that precision; None when numpy has
+    none."""
+    real = PRECISION_TYPES.get(precision)
+    if real is None or element is None or not element.startswith("complex"):
+        return real
+    return COMPLEX_TYPES.get(real)
+
+
 def cast_array(
     tree: ast.Module, name: str, precision: Precision, arrays: Mapping[str, Array], function: str | None = None
 ) -> str:
     """Array ``name`` of ``tree``'s function (shape and element type in ``arrays``) in the element type of
     ``precision``; returns the name the function now works on."""
-    target = PRECISION_TYPES.get(precision)
-    if target is None or name not in arrays:
+    spec = arrays.get(name)
+    target = None if spec is None else cast_element(spec.element, precision)
+    if target is None or spec is None:
         raise LayoutError(f"cast of {name!r} to {precision.value}: no such array, or no such element type in numpy")
-    spec = arrays[name]
     if spec.element == target:
         return name
     func = kernel(tree, function)

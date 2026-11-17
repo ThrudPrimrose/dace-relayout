@@ -9,7 +9,7 @@ import ast
 from collections.abc import Mapping
 
 from relayout.ops import ArraySpec, Cast, DigitOperation, Requests, Unzip, Zip
-from relayout.passes.py.cast_array import PRECISION_TYPES, cast_array
+from relayout.passes.py.cast_array import cast_array, cast_element
 from relayout.passes.py.common import Array, LayoutError, kernel
 from relayout.passes.py.pack_mpi_buffers import MpiBuffer, pack_mpi_buffers
 from relayout.passes.py.relayout_array import relayout_array
@@ -39,7 +39,7 @@ def apply_requests(
         if isinstance(op, Cast):
             source = working.get(op.array, op.array)
             target = cast_array(tree, source, op.to, known, function)
-            known[target] = Array(known[source].shape, PRECISION_TYPES[op.to])
+            known[target] = Array(known[source].shape, cast_element(known[source].element, op.to))
             working[op.array] = target
         elif isinstance(op, Zip):
             fields = [working.pop(name, name) for name in op.arrays]
@@ -49,9 +49,10 @@ def apply_requests(
             if zipped.element is not None:
                 stacked[op.into] = len(zipped.shape) - 1 if op.dim is None else op.dim
         elif isinstance(op, Unzip):
-            spec = known[op.array]
+            source = working.pop(op.array, op.array)  # a cast array splits as cast
+            spec = known[source]
             dim = stacked.get(op.array, len(spec.shape) - 1) if op.dim is None else op.dim
-            unzip_array(tree, op.array, op.into, dim, known, function)
+            unzip_array(tree, source, op.into, dim, known, function)
             rest = tuple(extent for k, extent in enumerate(spec.shape) if k != dim) or ("1",)
             known.update({part: Array(rest, spec.element) for part in op.into})
     laid_out = {op.array for op in requests.operations if isinstance(op, DigitOperation)}

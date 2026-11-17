@@ -24,6 +24,7 @@ __all__ = [
     "add_exit",
     "allocation",
     "arguments",
+    "breaks",
     "definition",
     "element_loops",
     "fully_written",
@@ -31,6 +32,7 @@ __all__ = [
     "is_read",
     "is_written",
     "kernel",
+    "keyword_role",
     "locate",
     "laid_name",
     "names_in",
@@ -63,6 +65,17 @@ MPI_BUFFERS: dict[str, tuple[tuple[int, ...], tuple[int, ...]]] = {
     "Exscan": ((0,), (1,)),
 }
 SEND_KEYWORDS, RECV_KEYWORDS = frozenset({"sendbuf", "buf"}), frozenset({"recvbuf"})
+
+
+def keyword_role(method: str, keyword: str | None) -> tuple[bool, bool]:
+    """Whether keyword argument ``keyword`` of mpi4py call ``method`` is a send buffer and whether a receive buffer:
+    ``sendbuf`` sends and ``recvbuf`` receives; ``buf`` is the first argument by name, so it plays that argument's
+    role (sent by ``Send``, received by ``Recv`` and ``Irecv``, both by ``Bcast``)."""
+    if keyword == "buf":
+        sends, receives = MPI_BUFFERS[method]
+        return 0 in sends, 0 in receives
+    return keyword in SEND_KEYWORDS, keyword in RECV_KEYWORDS
+
 
 #: The prefix of the local an argument is laid out into.
 LAID = "laid_"
@@ -183,6 +196,23 @@ def locate(func: ast.FunctionDef, stmt: ast.stmt) -> tuple[list[ast.stmt], int]:
     raise LayoutError(f"{where(stmt)}: the statement is no longer in the function")
 
 
+def breaks(body: Sequence[ast.stmt]) -> bool:
+    """Whether ``body``, a loop's body, leaves its loop by a ``break`` (one not inside a loop nested in it): merged
+    with an enclosing loop, it would leave that loop too."""
+    stack: list[ast.AST] = list(body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Break):
+            return True
+        if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
+            stack.extend(node.orelse)  # a break in a loop's else leaves the enclosing loop
+            continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        stack.extend(ast.iter_child_nodes(node))
+    return False
+
+
 def element_loops(shape: Sequence[str], params: Sequence[str], body: Sequence[ast.stmt]) -> list[ast.stmt]:
     """``body`` inside one loop per dimension of ``shape`` (``params[d]`` over ``range(shape[d])``)."""
     out = list(body)
@@ -262,13 +292,20 @@ def definition(func: ast.FunctionDef, name: str) -> tuple[list[ast.stmt], int]:
         body = tries[0].body
 
 
+#: The attributes of an array that read its metadata, not its cells.
+METADATA = frozenset({"shape", "dtype", "size", "ndim", "nbytes", "itemsize"})
+
+
 class Uses(ast.NodeVisitor):
     """Whether a function reads and whether it may write an array: a write is a store through a subscript,
     an augmented assignment, a method call on it, any call it is passed to (which may write through it) but
-    an mpi4py call it is sent by."""
+    an mpi4py call it is sent by, and any binding of a view of it to another name (``X = A``, ``row = A[i]``,
+    ``for row in A``), which the function may write through. With ``rank``, an element access ``A[i, j]`` (one
+    scalar index per dimension) is a value, no view."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, rank: int | None = None) -> None:
         self.name = name
+        self.rank = rank
         self.read = False
         self.written = False
         self.store_targets: set[int] = set()
@@ -276,10 +313,35 @@ class Uses(ast.NodeVisitor):
     def visit_Assign(self, node: ast.Assign) -> None:
         for target in node.targets:
             self.mark_store(target)
+        if any(not isinstance(target, ast.Subscript) for target in node.targets):
+            self.mark_alias(node.value)  # a subscript target copies the value; any other binds it
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         self.mark_store(node.target)
+        if node.value is not None and not isinstance(node.target, ast.Subscript):
+            self.mark_alias(node.value)
+        self.generic_visit(node)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self.mark_alias(node.value)
+        self.generic_visit(node)
+
+    def visit_For(self, node: ast.For) -> None:
+        self.mark_alias(node.iter)
+        self.generic_visit(node)
+
+    def visit_comprehension(self, node: ast.comprehension) -> None:
+        self.mark_alias(node.iter)
+        self.generic_visit(node)
+
+    def visit_withitem(self, node: ast.withitem) -> None:
+        self.mark_alias(node.context_expr)
+        self.generic_visit(node)
+
+    def visit_Return(self, node: ast.Return) -> None:
+        if node.value is not None:
+            self.mark_alias(node.value)
         self.generic_visit(node)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
@@ -292,7 +354,7 @@ class Uses(ast.NodeVisitor):
         if method in MPI_BUFFERS:  # an mpi4py call writes its receive buffers only
             receives = MPI_BUFFERS[method][1]
             operands = [a for k, a in enumerate(node.args) if k in receives]
-            operands += [k.value for k in node.keywords if k.arg in RECV_KEYWORDS]
+            operands += [k.value for k in node.keywords if keyword_role(method, k.arg)[1]]
         else:
             operands = [*node.args, *(k.value for k in node.keywords)]
             if isinstance(node.func, ast.Attribute):
@@ -313,6 +375,38 @@ class Uses(ast.NodeVisitor):
             for element in target.elts:
                 self.mark_store(element)
 
+    def mark_alias(self, value: ast.expr) -> None:
+        if self.aliases(value):
+            self.written = True
+
+    def aliases(self, value: ast.expr) -> bool:
+        """Whether ``value`` may be a view of the array (bound to a name, the function may write through it)."""
+        if isinstance(value, ast.Name):
+            return value.id == self.name
+        if isinstance(value, ast.Subscript):
+            if isinstance(value.value, ast.Name) and value.value.id == self.name and self.rank is not None:
+                elements = value.slice.elts if isinstance(value.slice, ast.Tuple) else [value.slice]
+                scalar = not any(
+                    isinstance(e, ast.Slice) or (isinstance(e, ast.Constant) and e.value in (Ellipsis, None))
+                    for e in elements
+                )
+                if scalar and len(elements) == self.rank:
+                    return False
+            return self.aliases(value.value)
+        if isinstance(value, ast.Attribute):
+            return value.attr not in METADATA and self.aliases(value.value)
+        if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+            return any(self.aliases(element) for element in value.elts)
+        if isinstance(value, ast.Starred):
+            return self.aliases(value.value)
+        if isinstance(value, ast.IfExp):
+            return self.aliases(value.body) or self.aliases(value.orelse)
+        if isinstance(value, ast.BoolOp):
+            return any(self.aliases(v) for v in value.values)
+        if isinstance(value, ast.NamedExpr):
+            return self.aliases(value.value)
+        return False
+
     @staticmethod
     def root(node: ast.expr) -> str | None:
         """The array an element, a slice or an attribute of ``node`` belongs to."""
@@ -321,14 +415,16 @@ class Uses(ast.NodeVisitor):
         return node.id if isinstance(node, ast.Name) else None
 
 
-def is_read(func: ast.FunctionDef, name: str) -> bool:
-    uses = Uses(name)
+def is_read(func: ast.FunctionDef, name: str, rank: int | None = None) -> bool:
+    uses = Uses(name, rank)
     uses.visit(func)
     return uses.read
 
 
-def is_written(func: ast.FunctionDef, name: str) -> bool:
-    uses = Uses(name)
+def is_written(func: ast.FunctionDef, name: str, rank: int | None = None) -> bool:
+    """Whether ``func`` may write array ``name`` (of ``rank`` dimensions, if known), directly or through a view
+    it binds (:class:`Uses`)."""
+    uses = Uses(name, rank)
     uses.visit(func)
     return uses.written
 

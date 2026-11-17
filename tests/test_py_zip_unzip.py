@@ -199,6 +199,26 @@ def test_a_data_dependent_write_stores_into_the_part_it_names() -> None:
     np.testing.assert_allclose(q, np.stack([np.zeros(5), 2 * x, np.zeros(5)]))
 
 
+def test_a_cast_before_an_unzip_makes_parts_of_the_cast_type() -> None:
+    """``cast`` q to fp32, then ``unzip`` it: the parts split the fp32 copy, so they are fp32."""
+    request = parse_requests(
+        {
+            "operations": [
+                {"action": "cast", "array": "q", "to": "fp32"},
+                {"action": "unzip", "array": "q", "into": ["a", "b", "c"], "dim": 0},
+            ]
+        }
+    )
+    arrays = {**SPECIES, "out": Array(("N",), "float64")}
+    function = rewritten(species_sum, lambda tree: apply_requests(tree, request, arrays))
+    assert "a = np.zeros((N,), dtype=np.dtype('float32'))" in function.source
+    q = np.random.default_rng(9).random((NCLV, 5))
+    out = np.zeros(5)
+    function.function(q.copy(), out, N=5)
+    q32 = q.astype(np.float32)
+    np.testing.assert_allclose(out, q32[0] + 2 * q32[1] + 3 * q32[2], rtol=1e-6)
+
+
 if __name__ == "__main__":
     test_zipped_fields_are_one_array_in_either_order()
     test_arrays_of_different_element_types_zip_into_a_struct()
@@ -209,3 +229,4 @@ if __name__ == "__main__":
     test_a_request_zips_along_a_dimension_and_unzips_back()
     test_a_data_dependent_index_selects_among_the_parts()
     test_a_data_dependent_write_stores_into_the_part_it_names()
+    test_a_cast_before_an_unzip_makes_parts_of_the_cast_type()

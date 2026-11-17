@@ -217,6 +217,66 @@ def test_a_local_defined_by_an_expression_is_converted_in_and_negative_indices_c
     )
 
 
+def through_a_name(A: np.ndarray, N: int, M: int) -> None:  # noqa: N803
+    X = A
+    for i in range(N):
+        row = X[i]
+        for j in range(M):
+            row[j] = 2.0 * row[j] + j
+
+
+@pytest.mark.parametrize("case", ["permute", "pad"])
+def test_an_argument_written_through_a_view_it_binds_is_converted_out(case: str) -> None:
+    """``X = A`` and ``row = X[i]`` bind views of the laid-out buffer; the writes through them reach the caller."""
+    function = rewritten(through_a_name, lambda tree: relayout_array(tree, "A", layout(LAYOUT_CASES[case])))
+    a = np.random.default_rng(10).standard_normal((4, 6))
+    want = a.copy()
+    through_a_name(want, 4, 6)
+    function.function(a, N=4, M=6)
+    np.testing.assert_allclose(a, want)
+
+
+def shifted(A: np.ndarray, B: np.ndarray, c: np.ndarray, N: int, M: int) -> None:  # noqa: N803
+    for i in range(N):
+        for j in range(M):
+            B[i, j] = A[i - 1, j] + A[c[i], j - 1]
+
+
+@pytest.mark.parametrize("case", ["block_ragged", "pad", "composed", "shuffle"])
+def test_an_index_negative_at_run_time_counts_from_the_end(case: str) -> None:
+    """``A[i - 1, j]`` at ``i = 0`` and ``A[c[i], j - 1]`` with ``c[i] = -2`` read from the end, as numpy does, also
+    where the layout pads or cuts the dimension."""
+
+    def transform(tree: ast.Module) -> None:
+        relayout_array(tree, "A", layout(LAYOUT_CASES[case]))
+        relayout_array(tree, "B", layout(LAYOUT_CASES[case]))
+
+    function = rewritten(shifted, transform)
+    a = np.random.default_rng(11).standard_normal((5, 7))
+    c = np.array([-2, 0, 4, -5, 1])
+    want, b = np.zeros((5, 7)), np.zeros((5, 7))
+    shifted(a, want, c, 5, 7)
+    function.function(a, b, c, N=5, M=7)
+    np.testing.assert_allclose(b, want)
+
+
+def doubled(Z: np.ndarray, N: int) -> None:  # noqa: N803
+    for i in range(N):
+        Z[i] = Z[i] * 2.0
+
+
+def test_a_complex_array_casts_both_parts() -> None:
+    """A complex array is the struct ``(re, im)``: a cast to fp32 makes it complex64, keeping the imaginary part."""
+    function = rewritten(
+        doubled, lambda tree: cast_array(tree, "Z", Precision.FP32, {"Z": Array(("N",), "complex128")})
+    )
+    assert "Z_complex64 = np.empty((N,), dtype=np.complex64)" in function.source
+    z = np.arange(4.0) + 1j * np.arange(1.0, 5.0)
+    want = 2.0 * z
+    function.function(z, N=4)
+    np.testing.assert_allclose(z, want, rtol=1e-6)
+
+
 if __name__ == "__main__":
     for refused in (
         {"operations": [{"action": "replicate", "array": "A"}]},
@@ -243,3 +303,8 @@ if __name__ == "__main__":
     test_a_local_is_cast_in_place_and_a_precision_numpy_lacks_is_refused()
     test_an_argument_written_in_part_keeps_the_cells_the_function_leaves()
     test_a_local_defined_by_an_expression_is_converted_in_and_negative_indices_count_from_the_end()
+    for name in ("permute", "pad"):
+        test_an_argument_written_through_a_view_it_binds_is_converted_out(name)
+    for name in ("block_ragged", "pad", "composed", "shuffle"):
+        test_an_index_negative_at_run_time_counts_from_the_end(name)
+    test_a_complex_array_casts_both_parts()

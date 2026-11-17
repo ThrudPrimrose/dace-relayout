@@ -76,7 +76,26 @@ def test_a_blocked_argument_unblocks_only_when_its_last_extent_is_the_tile() -> 
     np.testing.assert_allclose(a, blk)
 
 
+def early_exit(a: np.ndarray, b: np.ndarray, N: int) -> None:  # noqa: N803
+    for i in range(0, N, 4):
+        for ii in range(4):
+            if b[i + ii] < 0.0:
+                break
+            a[i + ii] = b[i + ii]
+
+
+def test_a_tile_that_breaks_is_left_tiled() -> None:
+    """A ``break`` leaves its tile only; in one collapsed loop it would leave every tile after it."""
+    function = rewritten(early_exit, lambda tree: untile_blocked_loops(tree))
+    assert loops(function.source) == 2
+    b = np.array([1.0, -1.0, 2.0, 3.0, 4.0, 5.0, -6.0, 7.0])
+    a = np.zeros(8)
+    function.function(a, b, N=8)
+    np.testing.assert_allclose(a, [1.0, 0.0, 0.0, 0.0, 4.0, 5.0, 0.0, 0.0])
+
+
 if __name__ == "__main__":
     test_an_array_blocked_to_the_tile_is_unblocked_and_both_nests_untile()
     test_case_a_and_case_b_nests_untile_also_when_clamped()
     test_a_blocked_argument_unblocks_only_when_its_last_extent_is_the_tile()
+    test_a_tile_that_breaks_is_left_tiled()
