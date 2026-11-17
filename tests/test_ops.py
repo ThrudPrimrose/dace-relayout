@@ -176,6 +176,22 @@ def test_an_inner_digit_blocks_only_by_a_divisor_of_its_extent() -> None:
         run(ops, [ArraySpec("A", 1)], (), "operations")
 
 
+@pytest.mark.parametrize(
+    "ops",
+    [
+        # b of extent 2 cut by 2 leaves c of extent 1 at stride 2, the stride of the outermost a
+        [Block("A", "i0", "2", ("a", "b")), Block("A", "b", "2", ("c", "d")), Block("A", "c", "4", ("e", "f"))],
+        # a block by 1 leaves its fine digit of extent 1 at the stride of the coarse one
+        [Block("A", "i0", "1", ("a", "b")), Block("A", "b", "3", ("c", "d"))],
+    ],
+)
+def test_a_digit_of_extent_one_under_an_equal_stride_is_inner(ops: list) -> None:
+    """A digit of extent 1 shares its stride with the digit above it; it is still inner, so a non-divisor
+    cut of it is refused (it stored two indices in one cell)."""
+    with pytest.raises(ValueError, match="does not divide"):
+        run(ops, [ArraySpec("A", 1)], (), "operations")
+
+
 def test_a_shuffle_takes_root_over_grid_expressions_only() -> None:
     """The kernels have no integer root of a digit value; over the grid it folds to a constant."""
     with pytest.raises(ValueError, match="root"):
@@ -378,6 +394,7 @@ if __name__ == "__main__":
     test_a_zip_of_one_precision_is_a_field_dimension()
     test_a_zip_compares_element_types_not_casts()
     test_an_inner_digit_blocks_only_by_a_divisor_of_its_extent()
+    test_a_digit_of_extent_one_under_an_equal_stride_is_inner([Block("A", "i0", "1", ("a", "b")), Block("A", "b", "3", ("c", "d"))])
     test_a_shuffle_takes_root_over_grid_expressions_only()
     test_unzip_along_a_dimension_splits_an_array()
     test_a_complex_array_is_one_element_and_a_struct()
