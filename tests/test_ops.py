@@ -327,6 +327,45 @@ def test_an_index_expression_evaluates_with_python_floor_semantics() -> None:
         eval_index("min(P0)", names, "t")
 
 
+def test_block_cyclic_of_width_one_lowers_as_cyclic() -> None:
+    """The short form's ``block_cyclic`` takes ``block_size`` 1 (its schema allows it): that is cyclic, at
+    every grid extent, and not a refusal of the width-1 digit its two cuts would leave."""
+    width_one = Distribute("A", 0, dim=0, scheme=Scheme.BLOCK_CYCLIC, block_size=1)
+    for p in (1, 2, 4):
+        assert lowered([width_one], A2, [p]) == {"A": [AxisSplit(0, Scheme.CYCLIC, 1), None]}
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        ("P0 // 0", "divides by zero"),
+        ("P0 % (P0 - 4)", "divides by zero"),
+        ("root((1 << 1000) * (1 << 100), 2)", None),
+        ("root(P0, 1 << 70)", None),
+        ("1 << (1 << 40)", "more than 1024 bits"),
+    ],
+)
+def test_an_index_expression_fault_is_a_value_error_at_once(text: str, match: str | None) -> None:
+    """Every expression a request can write evaluates quickly to an int or a ValueError naming it: a
+    division by zero, a float overflow in ``root`` or an unbounded power is never another exception or
+    a hang."""
+    names = {"P0": 4}
+    if match is not None:
+        with pytest.raises(ValueError, match=match):
+            eval_index(text, names, "t")
+    else:
+        assert isinstance(eval_index(text, names, "t"), int)
+
+
+def test_root_is_the_exact_integer_root() -> None:
+    assert eval_index("root((1 << 1000) * (1 << 100), 2)", {}, "t") == 1 << 550
+    assert eval_index("root(P0, 1 << 70)", {"P0": 4}, "t") == 1
+    for value in range(300):
+        for degree in range(1, 6):
+            root = eval_index(f"root({value}, {degree})", {}, "t")
+            assert root**degree <= value < (root + 1) ** degree
+
+
 if __name__ == "__main__":
     test_the_three_schemes_lower_from_their_primitive_operations()
     test_the_short_form_is_the_primitive_operations()
@@ -351,3 +390,13 @@ if __name__ == "__main__":
     test_a_linear_shuffle_inverts_its_matrix_over_gf2()
     test_a_request_reads_its_precisions_formats_and_locations()
     test_an_index_expression_evaluates_with_python_floor_semantics()
+    test_block_cyclic_of_width_one_lowers_as_cyclic()
+    for text, match in (
+        ("P0 // 0", "divides by zero"),
+        ("P0 % (P0 - 4)", "divides by zero"),
+        ("root((1 << 1000) * (1 << 100), 2)", None),
+        ("root(P0, 1 << 70)", None),
+        ("1 << (1 << 40)", "more than 1024 bits"),
+    ):
+        test_an_index_expression_fault_is_a_value_error_at_once(text, match)
+    test_root_is_the_exact_integer_root()

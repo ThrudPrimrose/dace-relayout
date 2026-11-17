@@ -76,12 +76,13 @@ extents (numpy `A[M, N]` is Fortran `A(N, M)`); reversing is a codegen step afte
 **Expressions.** `factor`, `parts`, `amount` and the grid's extents are integer expressions over the
 grid extents `P0, P1, ...` (the grid's over `P`): ints, names, `+ - * // % ^ & | << >>`, `min(a, b)`,
 `max(a, b)` and `root(a, k)` (the floor of the `k`-th root), with Python's floor semantics, evaluated
-without `eval`.
+without `eval`. `root` is the exact integer root; a division by zero, or a left shift by more than
+`MAX_SHIFT` (1024) bits, is a request fault.
 
 **Distribute, short form.** `{"dim": d, "scheme": s}` cuts dimension `d`'s whole digit and distributes
 its rank digit `r<d>`: `block` is `split` by `P_g`, `cyclic` is `block` by `P_g` with the fine digit
 distributed, `block_cyclic` of width `b` is `block` by `b·P_g`, `block` of its fine digit by `b`, the
-digit of extent `P_g` distributed (ScaLAPACK's local storage). A kernel's default distribution is
+digit of extent `P_g` distributed (ScaLAPACK's local storage). `block_cyclic` of width 1 is `cyclic`. A kernel's default distribution is
 shown this way (`operations_for_axes`).
 
 **Shuffle.** The XOR swizzle `col' = col ^ (row % 8)` is `"digits": ["i0", "i1"], "f": ["i0", "i1 ^ (i0

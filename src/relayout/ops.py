@@ -1163,7 +1163,8 @@ class Distribute(DigitOperation):
         array, into = ArrayName(self.array), DigitName(rank)
         if self.scheme is Scheme.BLOCK:
             cuts: list[DigitOperation] = [Split(array, DigitName(name), Expr(symbol), DigitPair((rank, name)))]
-        elif self.scheme is Scheme.CYCLIC:
+        elif self.scheme is Scheme.CYCLIC or self.block_size == 1:
+            # block_cyclic of width 1 is cyclic: its width-1 cut would leave a fine digit of extent 1
             cuts = [Block(array, DigitName(name), Expr(symbol), DigitPair((name, rank)))]
         else:
             cycle, width = f"c{dim}", self.block_size or 1

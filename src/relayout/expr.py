@@ -11,6 +11,7 @@ from typing import Any
 __all__ = [
     "BINOP_FUNCTIONS",
     "INDEX_CALLS",
+    "MAX_SHIFT",
     "check_index_expr",
     "eval_index",
     "evaluate",
@@ -36,15 +37,22 @@ BINOP_FUNCTIONS: dict[type[ast.operator], Callable[[int, int], int]] = {
 
 
 def int_root(value: int, degree: int) -> int:
-    """The floor of the ``degree``-th root of ``value`` (``root(P, 2)`` is a square grid's edge)."""
+    """The floor of the ``degree``-th root of ``value`` (``root(P, 2)`` is a square grid's edge), in exact
+    integer arithmetic: no float rounding or overflow, and a huge ``degree`` costs nothing."""
     if value < 0 or degree < 1:
         raise ValueError(f"root({value}, {degree}) needs a non-negative value and a degree >= 1")
-    guess = round(value ** (1 / degree))
-    while guess**degree > value:
-        guess -= 1
-    while (guess + 1) ** degree <= value:
-        guess += 1
-    return guess
+    if value < 2 or degree == 1:
+        return value
+    if degree >= value.bit_length():
+        return 1  # 2 ** degree > value
+    low, high = 1, 1 << (value.bit_length() // degree + 1)  # low ** degree <= value < high ** degree
+    while high - low > 1:
+        middle = (low + high) // 2
+        if middle**degree <= value:
+            low = middle
+        else:
+            high = middle
+    return low
 
 
 #: Function name -> (arity, implementation).
@@ -53,6 +61,21 @@ INDEX_CALLS: dict[str, tuple[int, Callable[..., int]]] = {
     "max": (2, max),
     "root": (2, int_root),
 }
+
+
+#: The widest left shift an index expression may take: beyond it the value is no index or extent any
+#: machine holds, and ``1 << (1 << 40)`` would allocate the whole memory.
+MAX_SHIFT = 1024
+
+
+def binop(op: type[ast.operator], left: Any, right: Any, text: str, where: str) -> Any:
+    """``left op right``; a division by zero or an oversized shift is a request fault, not a crash."""
+    if op is ast.LShift and isinstance(right, int) and right > MAX_SHIFT:
+        raise ValueError(f"{where}: {text!r} shifts by {right}, more than {MAX_SHIFT} bits")
+    try:
+        return BINOP_FUNCTIONS[op](left, right)
+    except ZeroDivisionError:
+        raise ValueError(f"{where}: {text!r} divides by zero") from None
 
 
 def is_root(node: ast.AST) -> bool:
@@ -107,7 +130,7 @@ def evaluate(text: str, names: Mapping[str, Any], calls: Mapping[str, Callable[.
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
             return -value(node.operand)
         if isinstance(node, ast.BinOp) and type(node.op) in BINOP_FUNCTIONS:
-            return BINOP_FUNCTIONS[type(node.op)](value(node.left), value(node.right))
+            return binop(type(node.op), value(node.left), value(node.right), text, where)
         if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Lt):
             return value(node.left) < value(node.comparators[0])
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in calls:
