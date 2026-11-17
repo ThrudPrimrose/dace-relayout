@@ -70,6 +70,8 @@ MAX_SHIFT = 1024
 
 def binop(op: type[ast.operator], left: Any, right: Any, text: str, where: str) -> Any:
     """``left op right``; a division by zero or an oversized shift is a request fault, not a crash."""
+    if op in (ast.LShift, ast.RShift) and isinstance(right, int) and right < 0:
+        raise ValueError(f"{where}: {text!r} shifts by {right}; a shift count must be >= 0")
     if op is ast.LShift and isinstance(right, int) and right > MAX_SHIFT:
         raise ValueError(f"{where}: {text!r} shifts by {right}, more than {MAX_SHIFT} bits")
     try:
@@ -134,7 +136,11 @@ def evaluate(text: str, names: Mapping[str, Any], calls: Mapping[str, Callable[.
         if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Lt):
             return value(node.left) < value(node.comparators[0])
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in calls:
-            return calls[node.func.id](*(value(arg) for arg in node.args))
+            arguments = [value(arg) for arg in node.args]
+            try:
+                return calls[node.func.id](*arguments)
+            except ValueError as exc:  # root() of a negative value: a request fault naming the expression
+                raise ValueError(f"{where}: {text!r}: {exc}") from None
         raise ValueError(f"{where}: {text!r} is not an index expression")
 
     return value(ast.parse(text, mode="eval").body)

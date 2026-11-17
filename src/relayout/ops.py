@@ -484,20 +484,24 @@ class DigitTuple:
             raise ValueError(f"{self.where}: digit name(s) {clash} are taken; the digits are {list(self.order())}")
         self.digits[position : position + 1] = list(new)
 
+    def outermost(self, old: Digit, *others: str) -> bool:
+        """Whether no digit but ``old`` and ``others`` (local or distributed) is coarser than ``old`` in its
+        dimension. A digit of extent 1 (a block by 1, or by a digit's whole extent) shares its stride with the
+        digit above it, so a stride alone does not order them: a digit is coarser when it starts at or past
+        ``old``'s top, ``old.stride * old.extent``."""
+        return not any(
+            d.dim == old.dim
+            and d.name != old.name
+            and d.name not in others
+            and (d.band or d.stride > old.stride or (old.extent is not None and d.stride >= old.stride * old.extent))
+            for d in (*self.digits, *(digit for digit, _ in self.distributed))
+        )
+
     def block(self, name: str, factor: int | None, into: tuple[str, str]) -> None:
         """Cut digit ``name`` ``(d, s, e)`` into coarse ``(d, s*b, ceil(e/b))`` and fine ``(d, s, b)``, in place."""
         old = self.cut(name)
         position = self.find(name)
-        # A digit of extent 1 (a block by 1, or by a digit's whole extent) shares its stride with the digit
-        # above it, so a stride alone does not order them: a digit is coarser when it starts at or past
-        # ``old``'s top, ``old.stride * old.extent``.
-        coarser = any(
-            d.dim == old.dim
-            and d.name != old.name
-            and (d.band or d.stride > old.stride or (old.extent is not None and d.stride >= old.stride * old.extent))
-            for d in (*self.digits, *(digit for digit, _ in self.distributed))
-        )
-        if coarser and old.extent is not None and factor is not None and old.extent % factor:
+        if not self.outermost(old) and old.extent is not None and factor is not None and old.extent % factor:
             raise ValueError(
                 f"{self.where}: {name!r} has extent {old.extent}, which {factor} does not divide; only a dimension's "
                 "outermost digit pads, so block an inner digit by a divisor of its extent"
@@ -527,6 +531,11 @@ class DigitTuple:
         if coarse.dim != fine.dim or coarse.band != band or not adjacent:
             raise ValueError(f"{self.where}: {list(pair)} are not the two digits of one {'split' if band else 'block'}")
         extent = None if band or coarse.extent is None or fine.extent is None else coarse.extent * fine.extent
+        known = self.initial[coarse.dim][2]
+        if extent is not None and known is not None and self.outermost(coarse, fine.name):
+            # the outermost digit's block padded its extent to a multiple of the factor: merged it is the
+            # dimension's own again, ceil(extent / stride), not the padded product
+            extent = -(-known // fine.stride)
         del self.digits[self.find(fine.name)]
         self.replace(self.find(coarse.name), [Digit(into, coarse.dim, fine.stride, extent)])
 

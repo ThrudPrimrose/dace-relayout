@@ -308,6 +308,21 @@ def test_unblock_and_unsplit_undo_their_cuts_in_the_digit_tuple() -> None:
     assert lowered(ops, [ArraySpec("A", 1)], [2]) == {"A": [AxisSplit(0, Scheme.BLOCK, 1)]}
 
 
+def test_unblock_of_a_padded_outermost_block_restores_the_dimensions_extent() -> None:
+    """``A[N, 3]``: a block of ``i1`` by 2 pads it to 2 x 2 cells; unblocked, ``i1`` has extent 3 again, not the
+    padded 4, so a 2-bit linear shuffle of it (extent 4) is refused instead of renumbering a cell past the
+    dimension. An inner digit's re-merge keeps the product of its parts."""
+    spec = ArraySpec("A", 2, extents=(None, 3))
+    cut = [Block("A", "i1", "2", ("a", "b")), Unblock("A", ("a", "b"), "2", "i1")]
+    assert run(cut, [spec], (), "ops").arrays["A"].digits.digits[1].extent == 3
+    swizzle = LinearShuffle("A", ("i1",), (2,), ((1, 1), (0, 1)))
+    with pytest.raises(ValueError, match=r"'i1' has extent 3, not 2\*\*2"):
+        run([*cut, swizzle], [spec], (), "ops")
+    inner = [Block("A", "i0", "4", ("a", "b")), Block("A", "b", "2", ("c", "d")), Unblock("A", ("c", "d"), "2", "b")]
+    digits = run(inner, [ArraySpec("A", 1, extents=(10,))], (), "ops").arrays["A"].digits.digits
+    assert [(digit.name, digit.extent) for digit in digits] == [("a", 3), ("b", 4)]
+
+
 def test_a_linear_shuffle_inverts_its_matrix_over_gf2() -> None:
     """The XOR swizzle ``col' = col ^ row`` on 2-bit indices is its own inverse; a general one is not."""
     swizzle = ((1, 0, 0, 0), (0, 1, 0, 0), (1, 0, 1, 0), (0, 1, 0, 1))
@@ -359,6 +374,9 @@ def test_block_cyclic_of_width_one_lowers_as_cyclic() -> None:
         ("root((1 << 1000) * (1 << 100), 2)", None),
         ("root(P0, 1 << 70)", None),
         ("1 << (1 << 40)", "more than 1024 bits"),
+        ("1 << (P0 - 5)", r"^t: '1 << \(P0 - 5\)' shifts by -1; a shift count must be >= 0"),
+        ("P0 >> (P0 - 5)", r"^t: 'P0 >> \(P0 - 5\)' shifts by -1"),
+        ("root(P0 - 5, 2)", r"^t: 'root\(P0 - 5, 2\)': root\(-1, 2\) needs a non-negative value"),
     ],
 )
 def test_an_index_expression_fault_is_a_value_error_at_once(text: str, match: str | None) -> None:
@@ -406,6 +424,7 @@ if __name__ == "__main__":
     test_a_malformed_operation_is_refused_when_it_is_made(lambda: Distribute("A", 0), "either the digit")
     test_every_digit_operation_has_its_inverse()
     test_unblock_and_unsplit_undo_their_cuts_in_the_digit_tuple()
+    test_unblock_of_a_padded_outermost_block_restores_the_dimensions_extent()
     test_a_linear_shuffle_inverts_its_matrix_over_gf2()
     test_a_request_reads_its_precisions_formats_and_locations()
     test_an_index_expression_evaluates_with_python_floor_semantics()
@@ -416,6 +435,9 @@ if __name__ == "__main__":
         ("root((1 << 1000) * (1 << 100), 2)", None),
         ("root(P0, 1 << 70)", None),
         ("1 << (1 << 40)", "more than 1024 bits"),
+        ("1 << (P0 - 5)", r"^t: '1 << \(P0 - 5\)' shifts by -1; a shift count must be >= 0"),
+        ("P0 >> (P0 - 5)", r"^t: 'P0 >> \(P0 - 5\)' shifts by -1"),
+        ("root(P0 - 5, 2)", r"^t: 'root\(P0 - 5, 2\)': root\(-1, 2\) needs a non-negative value"),
     ):
         test_an_index_expression_fault_is_a_value_error_at_once(text, match)
     test_root_is_the_exact_integer_root()
