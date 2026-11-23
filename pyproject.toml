@@ -3,11 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "relayout"
+name = "dace-relayout"
 version = "0.1.0"
 description = "Layout transformation sequences on SDFGs: GPU linear layouts and distributed (MPI, NCCL/RCCL) data movement"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Yakup Budanaz", email = "budanaz.yakup@gmail.com" }]
 # relayout.ops (the op schema and its lowering) imports nothing past the standard library; the SDFG passes
 # and kernels need dace. hpcagent-bench depends on relayout, so relayout never depends on it.
 dependencies = [
@@ -17,6 +20,10 @@ dependencies = [
     "islpy",
     "z3-solver",
 ]
+
+[project.urls]
+Repository = "https://github.com/ThrudPrimrose/dace-relayout"
+Changelog = "https://github.com/ThrudPrimrose/dace-relayout/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 mpi = ["mpi4py"]
@@ -41,6 +48,9 @@ override-dependencies = ["dace @ git+https://github.com/spcl/dace.git@extended"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/relayout"]
+# src/relayout/corpus is a symlink to the top-level corpus/, which the wheel builder skips: ship it as relayout.corpus.
+[tool.hatch.build.targets.wheel.force-include]
+"corpus" = "relayout/corpus"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

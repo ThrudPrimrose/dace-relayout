@@ -7,11 +7,21 @@ for it (a numpy / mpi4py program or an SDFG) and generates the kernels that conv
 
 ## Install
 
+From PyPI (the distribution is `dace-relayout`; the import stays `relayout`):
+
+```
+pip install dace-relayout                      # add [mpi] for the distributed passes
+pip install "dace @ git+https://github.com/spcl/dace.git@extended"   # relayout follows dace's extended branch
+```
+
+PyPI's `dace` is not the `extended` branch, so install it from GitHub as above (hpcagent-bench users: its
+`hpcagent-bench setup` installs the commit the benchmark pins). From a checkout:
+
 ```
 uv sync --extra mpi --group dev        # add --extra fortran for the Fortran kernels (needs LLVM flang)
 ```
 
-relayout follows dace's `extended` branch; dace, islpy, z3 and numpy are dependencies.
+The `fortran` and `fparena` extras need a checkout: dace-fortran and FP-Arena are not on PyPI.
 
 ## Quickstart: OMEN's self-energy (SC19)
 
