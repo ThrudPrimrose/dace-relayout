@@ -48,7 +48,9 @@ override-dependencies = ["dace @ git+https://github.com/spcl/dace.git@extended"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/relayout"]
-# src/relayout/corpus is a symlink to the top-level corpus/, which the wheel builder skips: ship it as relayout.corpus.
+# src/relayout/corpus is a symlink to the top-level corpus/. A wheel built from the sdist skips it and one built from a
+# checkout follows it, so exclude it and ship corpus/ once, as relayout.corpus (force-include ignores the exclude).
+exclude = ["/src/relayout/corpus"]
 [tool.hatch.build.targets.wheel.force-include]
 "corpus" = "relayout/corpus"
 
