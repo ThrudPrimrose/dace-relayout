@@ -7,7 +7,7 @@ name = "relayout"
 version = "0.1.0"
 description = "Layout transformation sequences on SDFGs: GPU linear layouts and distributed (MPI, NCCL/RCCL) data movement"
 readme = "README.md"
-requires-python = ">=3.12, <3.15"
+requires-python = ">=3.12"
 # relayout.ops (the op schema and its lowering) imports nothing past the standard library; the SDFG passes
 # and kernels need dace. hpcagent-bench depends on relayout, so relayout never depends on it.
 dependencies = [
