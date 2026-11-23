@@ -36,15 +36,15 @@ def conflict(A: dace.float64[N, N], B: dace.float64[N, N], C: dace.float64[N, N]
     for i, j in dace.map[0:N, 0:N]:
         B[i, j] = A[i, j] * 2.0
     for i, j in dace.map[0:N, 0:N]:
-        # B read both ways: no loop interchange makes this reader B's writer's twin, so it stays its own kernel
-        C[i, j] = B[j, i] + B[i, j]
+        # transposed and reversed: no loop interchange aligns this reader with B's writer, so it stays its own kernel
+        C[i, j] = B[j, N - 1 - i] + A[i, j]
     for i, j in dace.map[0:N, 0:N]:
         D[i, j] = B[j, i] * 0.5 + C[i, N - 1 - j] + A[i, j]
 
 
 def expected(a: np.ndarray) -> dict[str, np.ndarray]:
     b = 2.0 * a
-    c = b.T + b
+    c = b[:, ::-1].T + a
     return {"B": b, "C": c, "D": 0.5 * b.T + c[:, ::-1] + a}
 
 
