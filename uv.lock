@@ -166,13 +166,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-fortran = [
-    { name = "dace-fortran" },
-    { name = "nanobind" },
-]
-fparena = [
-    { name = "fp-arena" },
-]
 mpi = [
     { name = "mpi4py" },
 ]
@@ -185,20 +178,24 @@ dev = [
     { name = "pytest-timeout" },
     { name = "ruff" },
 ]
+fortran = [
+    { name = "dace-fortran" },
+    { name = "nanobind" },
+]
+fparena = [
+    { name = "fp-arena" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "dace-extended", specifier = ">=1.0.0" },
-    { name = "dace-fortran", marker = "extra == 'fortran'", git = "https://github.com/spcl/dace-fortran.git?branch=main" },
-    { name = "fp-arena", marker = "extra == 'fparena'", git = "https://github.com/spcl/FP-Arena.git?rev=08465359af8666927ab6b53bcfdce1865a6c34e1" },
     { name = "islpy" },
     { name = "mpi4py", marker = "extra == 'mpi'" },
-    { name = "nanobind", marker = "extra == 'fortran'" },
     { name = "numpy", specifier = ">=2.3.2" },
     { name = "pydantic", specifier = ">=2" },
     { name = "z3-solver" },
 ]
-provides-extras = ["mpi", "fortran", "fparena"]
+provides-extras = ["mpi"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -208,6 +205,11 @@ dev = [
     { name = "pytest-timeout" },
     { name = "ruff" },
 ]
+fortran = [
+    { name = "dace-fortran", git = "https://github.com/spcl/dace-fortran.git?branch=main" },
+    { name = "nanobind" },
+]
+fparena = [{ name = "fp-arena", git = "https://github.com/spcl/FP-Arena.git?rev=08465359af8666927ab6b53bcfdce1865a6c34e1" }]
 
 [[package]]
 name = "dill"

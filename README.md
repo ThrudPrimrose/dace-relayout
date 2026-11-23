@@ -18,10 +18,11 @@ PyPI's `dace` is not the `extended` branch, so install it from GitHub as above (
 `hpcagent-bench setup` installs the commit the benchmark pins). From a checkout:
 
 ```
-uv sync --extra mpi --group dev        # add --extra fortran for the Fortran kernels (needs LLVM flang)
+uv sync --extra mpi --group dev        # add --group fortran for the Fortran kernels (needs LLVM flang)
 ```
 
-The `fortran` and `fparena` extras need a checkout: dace-fortran and FP-Arena are not on PyPI.
+The Fortran kernels and casts need a checkout (`uv sync --group fortran`, `uv sync --group fparena`):
+dace-fortran and FP-Arena are not on PyPI.
 
 ## Quickstart: OMEN's self-energy (SC19)
 
@@ -61,7 +62,7 @@ lower(distributed.run([ArraySpec(name, 5) for name in ...], ranks=4))   # each a
 | `relayout.sparse` | sparse formats (csr, csc, coo, bsr, dia, ell) planned once from a canonical CSR, every format decoded back to it and converted to every other; values move through the gather; `boundary` calls a program (Python or SDFG) written for one format with another, converting at the call |
 | `relayout.rules` | how a library call absorbs a permuted operand: transpose, einsum, contraction / reduction axes, BLAS transpose flags (gemm, matmul, syrk) and triangles (syrk, symm) |
 | `relayout.passes.py` | Python passes, one module per SDFG pass of the same name and contract (an argument keeps its array, converted in and out; a local is rewritten in place): `prepare`, `relayout_array`, `zip_arrays` / `unzip_array` (a struct zip is a numpy structured array), `cast_array`, `pack_mpi_buffers` (mpi4py buffers, `Irecv` unpacked after its `Wait`), `unblock_dimensions` / `untile_blocked_loops`, `canonicalize_schedule` (loops tiled to the blocks, independent nests ordered by stride), `apply_requests`; shared by them: `common`, `placement`, `rewrite_accesses` |
-| `relayout.passes.sdfg` | SDFG passes, one module each: `prepare` (untile, canonicalize, packed arrays only), `relayout_array` (one rewrite for every layout: permute, block, split, pad, shuffle; library nodes by their rules), `zip_arrays` / `unzip_array` (along a dimension, data-dependent indices select their part; different element types zip into an array of structs), `cast_array` (FP-Arena, extra `fparena`), `pack_mpi_buffers` (MPI buffers through packed transients), `unblock_dimensions` / `untile_blocked_loops` (hand-blocked arrays and tiled loops flattened), `canonicalize_schedule` (maps tiled to the blocks their arrays are cut into, tiles over flat arrays merged back, map nests ordered by stride), `apply_requests` (a request's operations, in order); shared by them: `common`, `placement`, `rewrite_accesses`, `library_rules` |
+| `relayout.passes.sdfg` | SDFG passes, one module each: `prepare` (untile, canonicalize, packed arrays only), `relayout_array` (one rewrite for every layout: permute, block, split, pad, shuffle; library nodes by their rules), `zip_arrays` / `unzip_array` (along a dimension, data-dependent indices select their part; different element types zip into an array of structs), `cast_array` (FP-Arena, group `fparena`), `pack_mpi_buffers` (MPI buffers through packed transients), `unblock_dimensions` / `untile_blocked_loops` (hand-blocked arrays and tiled loops flattened), `canonicalize_schedule` (maps tiled to the blocks their arrays are cut into, tiles over flat arrays merged back, map nests ordered by stride), `apply_requests` (a request's operations, in order); shared by them: `common`, `placement`, `rewrite_accesses`, `library_rules` |
 | `relayout.search` | which layout each array takes: a program as a line of kernels, each kernel's layouts costed by the LogGP model or measured, one trajectory per array chosen globally (Viterbi DP, with greedy and enumeration as checks) and applied with conversions between segments |
 | `relayout.corpus` (`corpus/`) | the input programs: the OMEN SSE kernel (Python, Fortran, MPI), the layout witness kernels and Fortran inputs, each with a numpy oracle; the layouts tried on them live in `tests/layout_candidates.py` |
 

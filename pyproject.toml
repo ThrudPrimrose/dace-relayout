@@ -28,14 +28,16 @@ Changelog = "https://github.com/ThrudPrimrose/dace-relayout/blob/main/CHANGELOG.
 
 [project.optional-dependencies]
 mpi = ["mpi4py"]
+
+# Checkout-only: dace-fortran and FP-Arena are not on PyPI, so naming them in the published metadata (an extra) would
+# let whoever registers those names there run code on `pip install dace-relayout[...]`. Groups are never published.
+[dependency-groups]
+dev = ["pytest", "pytest-timeout", "ruff", "pre-commit", "ml-dtypes"]
 # The Fortran kernels: dace-fortran builds its nanobind bridge on first use but lists nanobind only in its
 # testing group.
 fortran = ["dace-fortran", "nanobind"]
 # SDFG casts (apply_requests): FP-Arena's floating-point type transformation.
 fparena = ["fp-arena"]
-
-[dependency-groups]
-dev = ["pytest", "pytest-timeout", "ruff", "pre-commit", "ml-dtypes"]
 
 [tool.uv.sources]
 # dace-extended resolves from PyPI, the same release pip installs.

@@ -48,7 +48,7 @@ def test_python_frontend():
 
 
 @pytest.mark.fortran
-@pytest.mark.skipif(flang_missing(), reason="no dace-fortran (extra 'fortran') or no LLVM flang")
+@pytest.mark.skipif(flang_missing(), reason="no dace-fortran (group 'fortran') or no LLVM flang")
 def test_fortran_frontend(tmp_path):
     import dace_fortran
 

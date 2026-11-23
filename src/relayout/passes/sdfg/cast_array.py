@@ -1,5 +1,5 @@
 # Copyright 2026 ETH Zurich and the relayout authors.
-"""``cast``: an array in another element type, by FP-Arena's floating-point type change (extra ``fparena``)."""
+"""``cast``: an array in another element type, by FP-Arena's floating-point type change (checkout group ``fparena``)."""
 
 import dace
 
@@ -19,11 +19,11 @@ PRECISION_TYPES = {
 
 def cast_array(sdfg: dace.SDFG, name: str, precision: Precision, convert: bool = True) -> str:
     """``sdfg``'s array ``name`` in the element type of ``precision``, by FP-Arena's type change and propagation
-    (extra ``fparena``). Every other floating-point argument keeps its type; the transients the array reaches take
+    (checkout group ``fparena``). Every other floating-point argument keeps its type; the transients the array reaches take
     the type the propagation gives them. A transient is cast in place; an argument works through a transient
     converted in and out, or, without ``convert``, is passed in the new type by the caller. Returns the name the
     program now works on."""
-    from fp_arena.transformations import change_and_propagate_fp_types  # the optional extra 'fparena'
+    from fp_arena.transformations import change_and_propagate_fp_types  # the checkout group fparena
 
     target = PRECISION_TYPES.get(precision)
     if target is None or name not in sdfg.arrays:

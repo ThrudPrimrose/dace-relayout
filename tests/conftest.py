@@ -45,10 +45,10 @@ def rewritten(function: Callable[..., Any], transform: Callable[[ast.Module], ob
 
 
 def flang_missing() -> bool:
-    """The Fortran frontend needs the optional ``fortran`` extra and an LLVM flang."""
+    """The Fortran frontend needs the checkout group ``fortran`` and an LLVM flang."""
     if importlib.util.find_spec("dace_fortran") is None:
         return True
-    from dace_fortran.llvm_toolchain import find_flang  # noqa: PLC0415  # optional extra
+    from dace_fortran.llvm_toolchain import find_flang  # noqa: PLC0415  # checkout group fortran
 
     return find_flang() is None
 

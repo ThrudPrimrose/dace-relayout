@@ -19,7 +19,7 @@ jobs:
           python-version: "3.14"
       # DaCe builds through CMake + Ninja.
       - run: sudo apt-get update && sudo apt-get install -y ninja-build
-      - run: uv sync --locked --extra fparena
+      - run: uv sync --locked --group fparena
       - run: uv run --no-sync pre-commit run --all-files
       - run: uv run --no-sync pytest -q -rfEs tests
         env:
