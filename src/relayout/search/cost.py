@@ -202,8 +202,8 @@ def is_register(sdfg: dace.SDFG, name: str) -> bool:
     return isinstance(desc, data.Scalar) and desc.transient
 
 
-def union(a: subsets.Range, b: subsets.Range) -> subsets.Range:
-    merged = subsets.union(a, b)
+def union(a: subsets.Range, b: subsets.Range, facts: symbolic.Facts) -> subsets.Range:
+    merged = subsets.union(a, b, facts)
     if isinstance(merged, subsets.Range):
         return merged
     return subsets.Range(
@@ -259,6 +259,7 @@ def count_nest(
     static count: pass its per-iteration ``(messages, sectors)`` in ``replayed`` (:func:`replayed_blocks`)."""
     sdfg = state.sdfg
     loops = [(p, rng) for m in nest_maps(state, entry) for p, rng in zip(m.map.params, m.map.range, strict=True)]
+    facts = sdfg.facts()
     accessed: dict[str, subsets.Range] = {}
     written: set[str] = set()
     dynamic: set[str] = set()
@@ -266,7 +267,7 @@ def count_nest(
         subset = memlet.subset
         if not isinstance(subset, subsets.Range):
             raise TypeError(f"{name!r} is accessed by {subset}, not a range")
-        accessed[name] = union(accessed[name], subset) if name in accessed else copy.deepcopy(subset)
+        accessed[name] = union(accessed[name], subset, facts) if name in accessed else copy.deepcopy(subset)
         written.update([name] if writes else [])
         dynamic.update([name] if memlet.dynamic else [])
     replayed = replayed or {}
