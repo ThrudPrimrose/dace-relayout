@@ -166,5 +166,5 @@ uv build -q -o "${work}/dist"
 uvx twine check --strict "${work}"/dist/*
 
 git push -q origin main "${tag}"
-gh release create "${tag}" -R "${slug}" --verify-tag --title "${name} ${new}" --notes "${notes}"
+gh release create "${tag}" -R "${slug}" --verify-tag --title "${name} ${new}" --notes "${notes}" --generate-notes
 echo "released ${name} ${new}: https://github.com/${slug}/releases/tag/${tag}; the Publish workflow uploads it to https://pypi.org/project/${name}/${new}/"
