@@ -8,7 +8,7 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "dace", git = "https://github.com/spcl/dace.git?rev=extended" }]
+overrides = [{ name = "dace", marker = "sys_platform == 'never'" }]
 
 [[package]]
 name = "annotated-types"
@@ -88,7 +88,32 @@ wheels = [
 [[package]]
 name = "dace"
 version = "2.0.0b1"
-source = { git = "https://github.com/spcl/dace.git?rev=extended#e710aaa3d32ff78b3b594f8c752ecafbb4d0653e" }
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "astunparse" },
+    { name = "click" },
+    { name = "cmake" },
+    { name = "dill" },
+    { name = "fparser" },
+    { name = "ml-dtypes" },
+    { name = "networkx" },
+    { name = "ninja" },
+    { name = "numpy" },
+    { name = "ordered-set" },
+    { name = "packaging" },
+    { name = "ply" },
+    { name = "pyreadline", marker = "python_version < '0'" },
+    { name = "pyyaml" },
+    { name = "scikit-build" },
+    { name = "sympy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/07/08/e02a771ee94c47f5bede9d70f8299f29a2bd088b0f54a9a22b81f3923b82/dace-2.0.0b1.tar.gz", hash = "sha256:a645f17cf6155a8cf13543df2daf2823f7d1cc88984276e73206a652fe305698", size = 7104619, upload-time = "2026-10-26T08:06:49.246Z" }
+
+[[package]]
+name = "dace-extended"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "astunparse" },
     { name = "click" },
@@ -111,13 +136,17 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "z3-solver" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/19/77/f5d22bea269bd9dbff5f26a695ec796156c35c16a7ac0086c64a5c940e09/dace_extended-1.0.0.tar.gz", hash = "sha256:e400ccd5211ec3656e3604cd5dd4895bf9d8447041a6740b949a889093784119", size = 9173389, upload-time = "2026-11-23T16:19:30.534Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/03/41/8a456422f5dc378e6d3355a1251b9c922513d9e5a341f7d65ee3e27f52fc/dace_extended-1.0.0-py3-none-any.whl", hash = "sha256:5b230e739575de45a046da881ebd458090ce098e1218655a1699ef1b6a58381a", size = 10068641, upload-time = "2026-11-23T16:19:27.675Z" },
+]
 
 [[package]]
 name = "dace-fortran"
 version = "1.0.0"
 source = { git = "https://github.com/spcl/dace-fortran.git?branch=main#a65937ea39a4869b8bf9c3a28736252ed98a365e" }
 dependencies = [
-    { name = "dace" },
+    { name = "dace", marker = "sys_platform == 'never'" },
     { name = "fparser" },
     { name = "nanobind" },
     { name = "networkx" },
@@ -129,7 +158,7 @@ name = "dace-relayout"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "dace" },
+    { name = "dace-extended" },
     { name = "islpy" },
     { name = "numpy" },
     { name = "pydantic" },
@@ -159,7 +188,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dace" },
+    { name = "dace-extended", specifier = ">=1.0.0" },
     { name = "dace-fortran", marker = "extra == 'fortran'", git = "https://github.com/spcl/dace-fortran.git?branch=main" },
     { name = "fp-arena", marker = "extra == 'fparena'", git = "https://github.com/spcl/FP-Arena.git?rev=08465359af8666927ab6b53bcfdce1865a6c34e1" },
     { name = "islpy" },
@@ -221,7 +250,7 @@ name = "fp-arena"
 version = "0.1.0"
 source = { git = "https://github.com/spcl/FP-Arena.git?rev=08465359af8666927ab6b53bcfdce1865a6c34e1#08465359af8666927ab6b53bcfdce1865a6c34e1" }
 dependencies = [
-    { name = "dace" },
+    { name = "dace", marker = "sys_platform == 'never'" },
     { name = "numpy" },
     { name = "ordered-set" },
     { name = "scipy" },

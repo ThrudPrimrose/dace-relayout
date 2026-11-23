@@ -12,9 +12,10 @@ license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "Yakup Budanaz", email = "budanaz.yakup@gmail.com" }]
 # relayout.ops (the op schema and its lowering) imports nothing past the standard library; the SDFG passes
-# and kernels need dace. hpcagent-bench depends on relayout, so relayout never depends on it.
+# and kernels need DaCe extended, published as dace-extended (import dace). hpcagent-bench depends on relayout, so
+# relayout never depends on it.
 dependencies = [
-    "dace",
+    "dace-extended>=1.0.0",
     "numpy>=2.3.2",
     "pydantic>=2",
     "islpy",
@@ -37,14 +38,14 @@ fparena = ["fp-arena"]
 dev = ["pytest", "pytest-timeout", "ruff", "pre-commit", "ml-dtypes"]
 
 [tool.uv.sources]
-# dace comes from the override below, not from a source: uv applies a git dependency's sources, so a dace source here
-# would conflict with the dace commit a project that depends on relayout (hpcagent-bench) pins.
+# dace-extended resolves from PyPI, the same release pip installs.
 dace-fortran = { git = "https://github.com/spcl/dace-fortran.git", branch = "main" }
 fp-arena = { git = "https://github.com/spcl/FP-Arena.git", rev = "08465359af8666927ab6b53bcfdce1865a6c34e1" }
 
 [tool.uv]
-# relayout as the root project: dace@extended, also over the dace@FaCe dace-fortran pins.
-override-dependencies = ["dace @ git+https://github.com/spcl/dace.git@extended"]
+# dace-fortran names plain `dace`, which would install upstream DaCe into the same dace/ folder as dace-extended:
+# never install it.
+override-dependencies = ["dace ; sys_platform == 'never'"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/relayout"]
