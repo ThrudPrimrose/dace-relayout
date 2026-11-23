@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dace-relayout"
-version = "0.1.0"
+version = "0.1.1"
 description = "Layout transformation sequences on SDFGs: GPU linear layouts and distributed (MPI, NCCL/RCCL) data movement"
 readme = "README.md"
 requires-python = ">=3.12"

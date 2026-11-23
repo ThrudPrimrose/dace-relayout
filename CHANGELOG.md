@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 (2026-11-23)
+
+- test_search_assign: C reads B transposed and reversed (one affine access), which no interchange aligns with B's writer; reading B both ways gave a Min() index and dropped A from the middle kernel (f51eea7)
+- DaCe extended 1.0.0: subsets.union takes the SDFG's facts; the assignment test's C reads B both ways, since canonicalize now interchanges a lone transposed reader into its writer's map and fuses the two (7feae24)
+- Depend on dace-extended (DaCe extended on PyPI, import dace) in place of plain dace; upstream dace is never installed (0dd868e)
+- Wheel from a checkout: exclude the corpus symlink so relayout/corpus is added once (uv's git builds failed on a duplicate __init__.py) (0b0e7c7)
+- release_patch.sh: no commits since the last tag is nothing to release, not an error (8e110f3)
+- helpers/release_patch.sh: patch release vX.Y.Z -> vX.Y.(Z+1) with tag, GitHub release and PyPI upload (b2d2744)
+
 ## 0.1.0 (2026-11-23)
 
 The first release, published on PyPI as `dace-relayout` (import `relayout`).
