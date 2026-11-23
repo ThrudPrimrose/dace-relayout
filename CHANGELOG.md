@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 (2026-11-23)
+
+- fortran and fparena are checkout groups, not published extras: dace-fortran and FP-Arena are not on PyPI, so an extra naming them could resolve to whatever someone registers there (39f662f)
+
 ## 0.1.1 (2026-11-23)
 
 - test_search_assign: C reads B transposed and reversed (one affine access), which no interchange aligns with B's writer; reading B both ways gave a Min() index and dropped A from the middle kernel (f51eea7)
