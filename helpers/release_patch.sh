@@ -39,7 +39,7 @@ git rev-parse -q --verify "refs/tags/${tag}" >/dev/null && die "tag ${tag} exist
 previous="v${old}"
 git rev-parse -q --verify "refs/tags/${previous}" >/dev/null || die "no tag ${previous} for the current version"
 commits="$(git log --no-merges --format='- %s (%h)' "${previous}..HEAD")"
-[[ -n "${commits}" ]] || die "no commits since ${previous}"
+[[ -n "${commits}" ]] || { echo "${name}: no commits since ${previous}, nothing to release"; exit 0; }
 
 # Only a commit every workflow passed on is released.
 runs="$(gh run list -R "${slug}" -c "${head}" -L 100 --json workflowName,status,conclusion)"
