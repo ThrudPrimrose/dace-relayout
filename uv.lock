@@ -209,7 +209,7 @@ fortran = [
     { name = "dace-fortran", git = "https://github.com/spcl/dace-fortran.git?branch=main" },
     { name = "nanobind" },
 ]
-fparena = [{ name = "fp-arena", git = "https://github.com/spcl/FP-Arena.git?rev=08465359af8666927ab6b53bcfdce1865a6c34e1" }]
+fparena = [{ name = "fp-arena", specifier = ">=0.1.0" }]
 
 [[package]]
 name = "dill"
@@ -250,13 +250,16 @@ wheels = [
 [[package]]
 name = "fp-arena"
 version = "0.1.0"
-source = { git = "https://github.com/spcl/FP-Arena.git?rev=08465359af8666927ab6b53bcfdce1865a6c34e1#08465359af8666927ab6b53bcfdce1865a6c34e1" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "dace", marker = "sys_platform == 'never'" },
     { name = "numpy" },
     { name = "ordered-set" },
     { name = "scipy" },
     { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4f/5d/b44dfb01a392d4dd45f7d446a25f344d1de54adf9ec1141872c2d82fec4e/fp_arena-0.1.0.tar.gz", hash = "sha256:30b8a5200073f6f27e7bf07908e6af099951c23e027bfe8e107440ad25200948", size = 132963, upload-time = "2026-11-23T17:06:05.101Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/43/88/6b180ff115ff99853d42a8c82138ab928d4171e45a1cea44b8f5f73d29fa/fp_arena-0.1.0-py3-none-any.whl", hash = "sha256:e7f0ac9de81c6aed6fe13c1e6c610ca8fdc9e293af7de7304c3380c8fbea1937", size = 114171, upload-time = "2026-11-23T17:06:03.896Z" },
 ]
 
 [[package]]
